@@ -7,7 +7,6 @@
     <Project Path="src/Stratum.Infrastructure/Stratum.Infrastructure.csproj" />
   </Folder>
   <Folder Name="/tests/">
-    <Project Path="tests/Stratum.Benchmarks/Stratum.Benchmarks.csproj" />
     <Project Path="tests/Stratum.IntegrationTests/Stratum.IntegrationTests.csproj" />
     <Project Path="tests/Stratum.UnitTests/Stratum.UnitTests.csproj" />
   </Folder>
