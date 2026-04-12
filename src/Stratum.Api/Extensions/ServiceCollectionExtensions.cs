@@ -97,6 +97,12 @@ public static class ApplicationExtensions
     /// <returns>The web application for chaining.</returns>
     public static IApplicationBuilder UseStratumApi(this IApplicationBuilder app)
     {
+        // Use developer error middleware for detailed error information
+        app.UseDeveloperError();
+
+        // Use request ID middleware for tracing
+        app.UseRequestId();
+
         // Use HTTPS redirection in production
         if (app is WebApplication webApp && webApp.Environment.IsProduction())
         {
