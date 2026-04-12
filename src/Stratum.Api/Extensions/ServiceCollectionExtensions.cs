@@ -171,6 +171,9 @@ public static class ApplicationExtensions
         // Use request size validation middleware
         app.UseRequestSizeValidation();
 
+        // Use request timeout middleware
+        app.UseRequestTimeout();
+
         // Use response compression
         app.UseResponseCompression();
 

@@ -38,6 +38,7 @@ export Authentication__EnableAnonymousAccess="false"
 | `Server:EnableHttp3` | bool | `true` | Enable HTTP/3 support |
 | `Server:MaxRequestBodySize` | long | `5368709120` (5GB) | Maximum request body size in bytes |
 | `Server:MaxRequestBufferSize` | int | `1048576` (1MB) | Maximum request buffer size in bytes |
+| `Server:RequestTimeoutSeconds` | int | `300` | Request timeout in seconds (default: 5 minutes) |
 
 ### Storage
 
