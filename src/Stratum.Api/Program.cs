@@ -16,6 +16,9 @@ try
     Log.Information("Starting Stratum API");
     var builder = WebApplication.CreateBuilder(args);
 
+    // Print startup banner
+    PrintStartupBanner(builder);
+
     // Ensure data directory exists
     var dataDirectory = builder.Configuration["Storage:DataDirectory"] ?? "./data";
     if (!Directory.Exists(dataDirectory))
@@ -90,4 +93,27 @@ catch (Exception ex)
 finally
 {
     Log.CloseAndFlush();
+}
+
+static void PrintStartupBanner(WebApplicationBuilder builder)
+{
+    var version = "0.1.0-alpha.1";
+    var listenUrl = builder.Configuration["Server:ListenUrl"] ?? "http://0.0.0.0:9000";
+    var dataDir = builder.Configuration["Storage:DataDirectory"] ?? "./data";
+    var enableHttp3 = builder.Configuration.GetValue<bool>("Server:EnableHttp3", true);
+    var environment = builder.Environment.EnvironmentName;
+
+    Console.WriteLine();
+    Console.WriteLine("╔═══════════════════════════════════════════════════════════════╗");
+    Console.WriteLine("║                                                               ║");
+    Console.WriteLine("║   STRATUM - S3-Compatible Object Storage                      ║");
+    Console.WriteLine("║                                                               ║");
+    Console.WriteLine($"║   Version: {version,-52} ║");
+    Console.WriteLine($"║   Environment: {environment,-46} ║");
+    Console.WriteLine($"║   Listen URL: {listenUrl,-47} ║");
+    Console.WriteLine($"║   Data Directory: {dataDir,-43} ║");
+    Console.WriteLine($"║   HTTP/3: {(enableHttp3 ? "Enabled" : "Disabled"),-48} ║");
+    Console.WriteLine("║                                                               ║");
+    Console.WriteLine("╚═══════════════════════════════════════════════════════════════╝");
+    Console.WriteLine();
 }
