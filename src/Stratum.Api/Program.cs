@@ -72,6 +72,29 @@ try
         listenUrl ?? "http://0.0.0.0:9000", 
         dataDir ?? "./data");
 
+    // Validate SQLite connection string
+    var dbPath = Path.Combine(dataDir ?? "./data", "stratum.db");
+    var dbDirectory = Path.GetDirectoryName(dbPath);
+    if (!string.IsNullOrEmpty(dbDirectory) && !Directory.Exists(dbDirectory))
+    {
+        Log.Information("Creating database directory: {DbDirectory}", dbDirectory);
+        Directory.CreateDirectory(dbDirectory);
+    }
+
+    // Test SQLite connection
+    try
+    {
+        Log.Information("Testing SQLite connection...");
+        using var connection = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={dbPath}");
+        await connection.OpenAsync();
+        Log.Information("SQLite connection test successful");
+    }
+    catch (Exception ex)
+    {
+        Log.Fatal(ex, "Failed to connect to SQLite database");
+        throw;
+    }
+
     // Add services
     builder.Services.AddStratumApi(builder.Configuration);
 
