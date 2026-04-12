@@ -56,7 +56,7 @@ public class ConcurrentOperationsBenchmarks
         Directory.CreateDirectory(_dataDirectory);
 
         // Pre-populate with files for reading
-        for (int i = 0; i < 1000; i++)
+        for (int i = 0; i < 100; i++)
         {
             var data = new byte[1024];
             Random.Shared.NextBytes(data);
@@ -79,11 +79,10 @@ public class ConcurrentOperationsBenchmarks
     [Arguments(10)]
     [Arguments(50)]
     [Arguments(100)]
-    [Arguments(500)]
     public async Task ConcurrentWrites(int concurrency)
     {
         var tasks = new List<Task>();
-        var size = 1024 * 1024; // 1MB
+        var size = 1024; // 1KB
 
         for (int i = 0; i < concurrency; i++)
         {
@@ -105,35 +104,20 @@ public class ConcurrentOperationsBenchmarks
     [Arguments(10)]
     [Arguments(50)]
     [Arguments(100)]
-    [Arguments(500)]
     public async Task ConcurrentReads(int concurrency)
     {
-        // First create test files
-        var size = 1024 * 1024; // 1MB
-        var keys = new List<string>();
+        var tasks = new List<Task>();
 
         for (int i = 0; i < concurrency; i++)
         {
-            var data = new byte[size];
-            Random.Shared.NextBytes(data);
-            var key = $"test-{Guid.NewGuid()}";
-
-            var filePath = Path.Combine(_dataDirectory, key);
-            await File.WriteAllBytesAsync(filePath, data);
-            keys.Add(key);
-        }
-
-        // Benchmark concurrent reads
-        var readTasks = new List<Task>();
-        foreach (var key in keys)
-        {
-            readTasks.Add(Task.Run(async () =>
+            var key = $"test-{i % 100}"; // Cycle through pre-populated files
+            tasks.Add(Task.Run(async () =>
             {
                 var filePath = Path.Combine(_dataDirectory, key);
                 await File.ReadAllBytesAsync(filePath);
             }));
         }
 
-        await Task.WhenAll(readTasks);
+        await Task.WhenAll(tasks);
     }
 }

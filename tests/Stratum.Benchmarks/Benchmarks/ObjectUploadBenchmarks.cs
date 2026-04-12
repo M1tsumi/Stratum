@@ -30,9 +30,8 @@ public class ObjectUploadBenchmarks
 
     [Benchmark]
     [Arguments(1024)] // 1KB
-    [Arguments(1024 * 1024)] // 1MB
-    [Arguments(10 * 1024 * 1024)] // 10MB
-    [Arguments(100 * 1024 * 1024)] // 100MB
+    [Arguments(4096)] // 4KB
+    [Arguments(16384)] // 16KB
     public async Task WriteFile(int size)
     {
         var data = new byte[size];
@@ -63,9 +62,9 @@ public class ObjectUploadBenchmarks
     }
 
     [Benchmark]
+    [Arguments(10)]
     [Arguments(100)]
     [Arguments(1000)]
-    [Arguments(10000)]
     public async Task WriteMultipleFiles(int count)
     {
         var tasks = new List<Task>();

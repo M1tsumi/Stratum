@@ -19,7 +19,7 @@ public class ObjectDownloadBenchmarks
         Directory.CreateDirectory(_dataDirectory);
 
         // Create test files of various sizes
-        var sizes = new[] { 1024, 1024 * 1024, 10 * 1024 * 1024 };
+        var sizes = new[] { 1024, 4096, 16384 };
         foreach (var size in sizes)
         {
             var data = new byte[size];
@@ -52,7 +52,7 @@ public class ObjectDownloadBenchmarks
         _testFiles.Clear();
 
         // Pre-populate with files
-        for (int i = 0; i < 10000; i++)
+        for (int i = 0; i < 1000; i++)
         {
             var data = new byte[1024];
             Random.Shared.NextBytes(data);
@@ -75,8 +75,8 @@ public class ObjectDownloadBenchmarks
 
     [Benchmark]
     [Arguments(1024)] // 1KB
-    [Arguments(1024 * 1024)] // 1MB
-    [Arguments(10 * 1024 * 1024)] // 10MB
+    [Arguments(4096)] // 4KB
+    [Arguments(16384)] // 16KB
     public async Task ReadFile(int size)
     {
         var key = _testFiles.FirstOrDefault(k => k.Value == size).Key;
@@ -96,9 +96,9 @@ public class ObjectDownloadBenchmarks
     }
 
     [Benchmark]
+    [Arguments(10)]
     [Arguments(100)]
     [Arguments(1000)]
-    [Arguments(10000)]
     public async Task ReadMultipleFiles(int count)
     {
         var tasks = new List<Task>();

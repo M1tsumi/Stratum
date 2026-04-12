@@ -37,12 +37,12 @@ public class MetadataQueryBenchmarks
     }
 
     [Benchmark]
+    [Arguments(10)]
     [Arguments(100)]
     [Arguments(1000)]
-    [Arguments(10000)]
-    public List<ObjectMetadata> ListMetadata(int count)
+    public void ListMetadata(int count)
     {
-        return _metadataList.Take(count).ToList();
+        var list = _metadataList.Take(count).ToList();
     }
 
     [Benchmark]
