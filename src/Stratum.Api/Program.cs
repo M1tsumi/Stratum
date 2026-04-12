@@ -95,10 +95,36 @@ try
         throw;
     }
 
+    // Check write permissions
+    try
+    {
+        Log.Information("Checking write permissions...");
+        var testFile = Path.Combine(dataDir ?? "./data", ".write-test");
+        await File.WriteAllTextAsync(testFile, "test");
+        File.Delete(testFile);
+        Log.Information("Write permissions verified");
+    }
+    catch (Exception ex)
+    {
+        Log.Fatal(ex, "Failed to verify write permissions in data directory");
+        throw;
+    }
+
     // Add services
     builder.Services.AddStratumApi(builder.Configuration);
 
     var app = builder.Build();
+
+    // Configure graceful shutdown
+    app.Lifetime.ApplicationStopping.Register(() =>
+    {
+        Log.Information("Stratum API is shutting down...");
+    });
+
+    app.Lifetime.ApplicationStopped.Register(() =>
+    {
+        Log.Information("Stratum API has stopped");
+    });
 
     // Configure middleware
     app.UseStratumApi();
