@@ -189,6 +189,9 @@ public static class ApplicationExtensions
         // Use request ID middleware for tracing
         app.UseRequestId();
 
+        // Use request validation middleware
+        app.UseRequestValidation();
+
         // Use request size validation middleware
         app.UseRequestSizeValidation();
 
