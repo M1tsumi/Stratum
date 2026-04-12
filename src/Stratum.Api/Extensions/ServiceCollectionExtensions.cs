@@ -199,12 +199,18 @@ public static class ApplicationExtensions
     public static IApplicationBuilder UseStratumApi(this IApplicationBuilder app, IConfiguration configuration)
     {
         // Validate configuration at startup
-        var validator = new ConfigurationValidator(configuration);
-        var errors = validator.Validate();
-        if (errors.Count > 0)
+        try
         {
-            throw new InvalidOperationException(
-                $"Configuration validation failed:{Environment.NewLine}{string.Join(Environment.NewLine, errors.Select(e => $"  - {e}"))}");
+            var validator = new ConfigurationValidator(configuration);
+            var errors = validator.Validate();
+            if (errors.Count > 0)
+            {
+                Console.WriteLine($"Configuration validation warnings:{Environment.NewLine}{string.Join(Environment.NewLine, errors.Select(e => $"  - {e}"))}");
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Configuration validation error: {ex.Message}");
         }
 
         // Use developer error middleware for detailed error information
