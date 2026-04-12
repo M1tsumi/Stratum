@@ -34,8 +34,29 @@ public static class ServiceCollectionExtensions
     /// <returns>The service collection for chaining.</returns>
     public static IServiceCollection AddStratumApi(this IServiceCollection services, IConfiguration configuration)
     {
-        // Add health checks
-        services.AddHealthChecks();
+        // Add health checks with detailed response
+        services.AddHealthChecks()
+            .AddCheck("Storage", () =>
+            {
+                var dataDir = configuration["Storage:DataDirectory"] ?? "./data";
+                return Directory.Exists(dataDir)
+                    ? Microsoft.Extensions.Diagnostics.HealthChecks.HealthCheckResult.Healthy($"Storage directory accessible: {dataDir}")
+                    : Microsoft.Extensions.Diagnostics.HealthChecks.HealthCheckResult.Unhealthy($"Storage directory not accessible: {dataDir}");
+            })
+            .AddCheck("Database", () =>
+            {
+                try
+                {
+                    var dbPath = Path.Combine(configuration["Storage:DataDirectory"] ?? "./data", "stratum.db");
+                    return File.Exists(dbPath)
+                        ? Microsoft.Extensions.Diagnostics.HealthChecks.HealthCheckResult.Healthy("Database file accessible")
+                        : Microsoft.Extensions.Diagnostics.HealthChecks.HealthCheckResult.Degraded("Database file does not exist (will be created on first use)");
+                }
+                catch (Exception ex)
+                {
+                    return Microsoft.Extensions.Diagnostics.HealthChecks.HealthCheckResult.Unhealthy($"Database check failed: {ex.Message}");
+                }
+            });
 
         // Add response compression
         services.AddResponseCompression(options =>
@@ -218,8 +239,27 @@ public static class EndpointRouteBuilderExtensions
     /// <returns>The web application for chaining.</returns>
     public static WebApplication MapStratumEndpoints(this WebApplication app)
     {
-        // Use health checks endpoint
-        app.MapHealthChecks("/health");
+        // Use health checks endpoint with detailed response
+        app.MapHealthChecks("/health", new Microsoft.AspNetCore.Diagnostics.HealthChecks.HealthCheckOptions
+        {
+            ResponseWriter = async (context, report) =>
+            {
+                context.Response.ContentType = "application/json";
+                var response = new
+                {
+                    Status = report.Status.ToString(),
+                    Checks = report.Entries.Select(x => new
+                    {
+                        Name = x.Key,
+                        Status = x.Value.Status.ToString(),
+                        Description = x.Value.Description,
+                        Duration = x.Value.Duration.TotalMilliseconds
+                    }),
+                    TotalDuration = report.TotalDuration.TotalMilliseconds
+                };
+                await context.Response.WriteAsJsonAsync(response);
+            }
+        });
 
         // Map S3 API endpoints
         app.MapBucketEndpoints();
