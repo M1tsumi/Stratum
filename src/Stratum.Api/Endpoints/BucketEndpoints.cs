@@ -40,6 +40,16 @@ public static class BucketEndpoints
         IMetadataStore metadataStore,
         CancellationToken cancellationToken)
     {
+        if (string.IsNullOrWhiteSpace(bucket))
+        {
+            return Results.BadRequest(new S3Error
+            {
+                Code = "InvalidBucketName",
+                Message = "Bucket name cannot be empty or whitespace.",
+                Resource = bucket
+            });
+        }
+
         if (!IsValidBucketName(bucket))
         {
             return Results.BadRequest(new S3Error
@@ -65,13 +75,43 @@ public static class BucketEndpoints
 
             var newBucket = new Bucket(bucket, "us-east-1");
             await metadataStore.CreateBucketAsync(newBucket, cancellationToken);
-            
+
             context.Response.Headers.Location = $"/{bucket}";
             return Results.Ok();
         }
+        catch (OperationCanceledException)
+        {
+            return Results.StatusCode(499); // Client Closed Request
+        }
+        catch (IOException ex)
+        {
+            return Results.Json(new S3Error
+            {
+                Code = "InternalError",
+                Message = $"Storage operation failed: {ex.Message}",
+                Resource = bucket,
+                RequestId = context.TraceIdentifier
+            }, statusCode: 500);
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            return Results.Json(new S3Error
+            {
+                Code = "AccessDenied",
+                Message = $"Permission denied: {ex.Message}",
+                Resource = bucket,
+                RequestId = context.TraceIdentifier
+            }, statusCode: 403);
+        }
         catch (Exception ex)
         {
-            return Results.Problem($"Failed to create bucket '{bucket}': {ex.Message}");
+            return Results.Json(new S3Error
+            {
+                Code = "InternalError",
+                Message = $"Failed to create bucket '{bucket}': {ex.Message}",
+                Resource = bucket,
+                RequestId = context.TraceIdentifier
+            }, statusCode: 500);
         }
     }
 
@@ -80,9 +120,20 @@ public static class BucketEndpoints
     /// </summary>
     private static async Task<IResult> DeleteBucketAsync(
         string bucket,
+        HttpContext context,
         IMetadataStore metadataStore,
         CancellationToken cancellationToken)
     {
+        if (string.IsNullOrWhiteSpace(bucket))
+        {
+            return Results.BadRequest(new S3Error
+            {
+                Code = "InvalidBucketName",
+                Message = "Bucket name cannot be empty or whitespace.",
+                Resource = bucket
+            });
+        }
+
         try
         {
             var exists = await metadataStore.BucketExistsAsync(bucket, cancellationToken);
@@ -92,16 +143,57 @@ public static class BucketEndpoints
                 {
                     Code = "NoSuchBucket",
                     Message = $"Bucket '{bucket}' does not exist. Verify the bucket name and try again.",
-                    Resource = bucket
+                    Resource = bucket,
+                    RequestId = context.TraceIdentifier
                 });
             }
 
             await metadataStore.DeleteBucketAsync(bucket, cancellationToken);
             return Results.NoContent();
         }
+        catch (OperationCanceledException)
+        {
+            return Results.StatusCode(499); // Client Closed Request
+        }
+        catch (InvalidOperationException ex) when (ex.Message.Contains("not empty"))
+        {
+            return Results.Json(new S3Error
+            {
+                Code = "BucketNotEmpty",
+                Message = $"Bucket '{bucket}' is not empty. Delete all objects in the bucket before deleting the bucket.",
+                Resource = bucket,
+                RequestId = context.TraceIdentifier
+            }, statusCode: 409);
+        }
+        catch (IOException ex)
+        {
+            return Results.Json(new S3Error
+            {
+                Code = "InternalError",
+                Message = $"Storage operation failed: {ex.Message}",
+                Resource = bucket,
+                RequestId = context.TraceIdentifier
+            }, statusCode: 500);
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            return Results.Json(new S3Error
+            {
+                Code = "AccessDenied",
+                Message = $"Permission denied: {ex.Message}",
+                Resource = bucket,
+                RequestId = context.TraceIdentifier
+            }, statusCode: 403);
+        }
         catch (Exception ex)
         {
-            return Results.Problem($"Failed to delete bucket '{bucket}': {ex.Message}");
+            return Results.Json(new S3Error
+            {
+                Code = "InternalError",
+                Message = $"Failed to delete bucket '{bucket}': {ex.Message}",
+                Resource = bucket,
+                RequestId = context.TraceIdentifier
+            }, statusCode: 500);
         }
     }
 
@@ -110,9 +202,20 @@ public static class BucketEndpoints
     /// </summary>
     private static async Task<IResult> HeadBucketAsync(
         string bucket,
+        HttpContext context,
         IMetadataStore metadataStore,
         CancellationToken cancellationToken)
     {
+        if (string.IsNullOrWhiteSpace(bucket))
+        {
+            return Results.BadRequest(new S3Error
+            {
+                Code = "InvalidBucketName",
+                Message = "Bucket name cannot be empty or whitespace.",
+                Resource = bucket
+            });
+        }
+
         try
         {
             var exists = await metadataStore.BucketExistsAsync(bucket, cancellationToken);
@@ -122,15 +225,36 @@ public static class BucketEndpoints
                 {
                     Code = "NoSuchBucket",
                     Message = $"Bucket '{bucket}' does not exist. Verify the bucket name and try again.",
-                    Resource = bucket
+                    Resource = bucket,
+                    RequestId = context.TraceIdentifier
                 });
             }
 
             return Results.Ok();
         }
+        catch (OperationCanceledException)
+        {
+            return Results.StatusCode(499); // Client Closed Request
+        }
+        catch (IOException ex)
+        {
+            return Results.Json(new S3Error
+            {
+                Code = "InternalError",
+                Message = $"Storage operation failed: {ex.Message}",
+                Resource = bucket,
+                RequestId = context.TraceIdentifier
+            }, statusCode: 500);
+        }
         catch (Exception ex)
         {
-            return Results.Problem($"Failed to check bucket '{bucket}': {ex.Message}");
+            return Results.Json(new S3Error
+            {
+                Code = "InternalError",
+                Message = $"Failed to check bucket '{bucket}': {ex.Message}",
+                Resource = bucket,
+                RequestId = context.TraceIdentifier
+            }, statusCode: 500);
         }
     }
 
@@ -138,6 +262,7 @@ public static class BucketEndpoints
     /// Lists all buckets.
     /// </summary>
     private static async Task<IResult> ListBucketsAsync(
+        HttpContext context,
         IMetadataStore metadataStore,
         CancellationToken cancellationToken)
     {
@@ -159,9 +284,27 @@ public static class BucketEndpoints
                 }
             });
         }
+        catch (OperationCanceledException)
+        {
+            return Results.StatusCode(499); // Client Closed Request
+        }
+        catch (IOException ex)
+        {
+            return Results.Json(new S3Error
+            {
+                Code = "InternalError",
+                Message = $"Storage operation failed: {ex.Message}",
+                RequestId = context.TraceIdentifier
+            }, statusCode: 500);
+        }
         catch (Exception ex)
         {
-            return Results.Problem($"Failed to list buckets: {ex.Message}");
+            return Results.Json(new S3Error
+            {
+                Code = "InternalError",
+                Message = $"Failed to list buckets: {ex.Message}",
+                RequestId = context.TraceIdentifier
+            }, statusCode: 500);
         }
     }
 
