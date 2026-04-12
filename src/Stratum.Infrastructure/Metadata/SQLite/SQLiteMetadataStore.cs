@@ -42,10 +42,19 @@ public sealed class SQLiteMetadataStore : IMetadataStore, IDisposable
         walCommand.CommandText = "PRAGMA journal_mode = WAL;";
         await walCommand.ExecuteNonQueryAsync(cancellationToken);
 
-        // Set cache size
+        // Set cache size (64MB)
         await using var cacheCommand = _connection.CreateCommand();
         cacheCommand.CommandText = "PRAGMA cache_size = -64000;";
         await cacheCommand.ExecuteNonQueryAsync(cancellationToken);
+
+        // Optimize for performance
+        await using var optimizeCommand = _connection.CreateCommand();
+        optimizeCommand.CommandText = "PRAGMA synchronous = NORMAL;";
+        await optimizeCommand.ExecuteNonQueryAsync(cancellationToken);
+
+        await using var mmapCommand = _connection.CreateCommand();
+        mmapCommand.CommandText = "PRAGMA mmap_size = 268435456;"; // 256MB
+        await mmapCommand.ExecuteNonQueryAsync(cancellationToken);
 
         // Create tables
         await CreateTablesAsync(cancellationToken);
@@ -87,6 +96,10 @@ public sealed class SQLiteMetadataStore : IMetadataStore, IDisposable
             );
 
             CREATE INDEX IF NOT EXISTS IX_Objects_BucketKey ON Objects(BucketName, Key);
+            CREATE INDEX IF NOT EXISTS IX_Objects_BucketName ON Objects(BucketName);
+            CREATE INDEX IF NOT EXISTS IX_Objects_LastModified ON Objects(LastModified);
+            CREATE INDEX IF NOT EXISTS IX_Objects_ETag ON Objects(ETag);
+            CREATE INDEX IF NOT EXISTS IX_Objects_VersionId ON Objects(VersionId);
 
             CREATE TABLE IF NOT EXISTS MultipartUploads (
                 UploadId TEXT PRIMARY KEY,
@@ -100,6 +113,9 @@ public sealed class SQLiteMetadataStore : IMetadataStore, IDisposable
                 StorageClass TEXT DEFAULT 'STANDARD'
             );
 
+            CREATE INDEX IF NOT EXISTS IX_MultipartUploads_BucketName ON MultipartUploads(BucketName);
+            CREATE INDEX IF NOT EXISTS IX_MultipartUploads_InitiatedAt ON MultipartUploads(InitiatedAt);
+
             CREATE TABLE IF NOT EXISTS MultipartParts (
                 UploadId TEXT NOT NULL,
                 PartNumber INTEGER NOT NULL,
@@ -108,6 +124,8 @@ public sealed class SQLiteMetadataStore : IMetadataStore, IDisposable
                 LastModified TEXT NOT NULL,
                 PRIMARY KEY (UploadId, PartNumber)
             );
+
+            CREATE INDEX IF NOT EXISTS IX_MultipartParts_UploadId ON MultipartParts(UploadId);
 
             CREATE TABLE IF NOT EXISTS AccessKeys (
                 AccessKeyId TEXT PRIMARY KEY,
@@ -118,6 +136,10 @@ public sealed class SQLiteMetadataStore : IMetadataStore, IDisposable
                 IsActive INTEGER DEFAULT 1,
                 Description TEXT
             );
+
+            CREATE INDEX IF NOT EXISTS IX_AccessKeys_UserName ON AccessKeys(UserName);
+            CREATE INDEX IF NOT EXISTS IX_AccessKeys_IsActive ON AccessKeys(IsActive);
+            CREATE INDEX IF NOT EXISTS IX_AccessKeys_ExpiresAt ON AccessKeys(ExpiresAt);
 
             CREATE TABLE IF NOT EXISTS AccessKeyPolicies (
                 AccessKeyId TEXT NOT NULL,

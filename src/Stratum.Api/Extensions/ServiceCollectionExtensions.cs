@@ -13,6 +13,7 @@ using OpenTelemetry.Trace;
 using Serilog;
 using Stratum.Api.Endpoints;
 using Stratum.Api.HealthChecks;
+using Stratum.Api.Metrics;
 using Stratum.Api.Middleware;
 using Stratum.Application.Interfaces;
 using Stratum.Domain.Interfaces;
@@ -154,6 +155,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IObjectStore>(cachedStore);
         services.AddSingleton<SigV4Validator>();
         services.AddSingleton<ETagCalculator>();
+        services.AddSingleton<PerformanceMetrics>();
 
         // Configure Kestrel
         services.Configure<KestrelServerOptions>(options =>
@@ -216,6 +218,9 @@ public static class ApplicationExtensions
 
         // Use performance timing middleware
         app.UsePerformanceTiming();
+
+        // Use performance metrics collection
+        app.UsePerformanceMetrics();
 
         // Use request logging middleware
         app.UseRequestLogging();
@@ -281,6 +286,18 @@ public static class EndpointRouteBuilderExtensions
         app.MapBucketEndpoints();
         app.MapObjectEndpoints();
         app.MapMultipartEndpoints();
+
+        // Map metrics endpoint
+        app.MapGet("/metrics", (PerformanceMetrics metrics) =>
+        {
+            return Results.Ok(new
+            {
+                Uptime = metrics.GetUptime().ToString(@"hh\:mm\:ss"),
+                Metrics = metrics.GetAllMetrics()
+                    .OrderByDescending(m => m.Count)
+                    .ToList()
+            });
+        }).WithName("GetMetrics");
 
         // Map root endpoint
         app.MapGet("/", () => Results.Ok(new

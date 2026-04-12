@@ -15,27 +15,27 @@ public static class MultipartEndpoints
     /// </summary>
     public static void MapMultipartEndpoints(this IEndpointRouteBuilder app)
     {
-        // CreateMultipartUpload - use different path to avoid conflict
-        app.MapPost("/{bucket}/{*key}/uploads", CreateMultipartUploadAsync)
+        // CreateMultipartUpload - distinguished by ?uploads query parameter
+        app.MapPost("/{bucket}/{*key}", CreateMultipartUploadAsync)
             .WithName("CreateMultipartUpload");
 
-        // UploadPart - use different path to avoid conflict
-        app.MapPut("/{bucket}/{*key}/upload", UploadPartAsync)
+        // UploadPart - distinguished by ?partNumber and ?uploadId query parameters
+        app.MapPut("/{bucket}/{*key}", UploadPartAsync)
             .WithName("UploadPart");
 
-        // CompleteMultipartUpload - use different path to avoid conflict
-        app.MapPost("/{bucket}/{*key}/complete", CompleteMultipartUploadAsync)
+        // CompleteMultipartUpload - distinguished by ?uploadId query parameter
+        app.MapPost("/{bucket}/{*key}", CompleteMultipartUploadAsync)
             .WithName("CompleteMultipartUpload");
 
-        // AbortMultipartUpload - use different path to avoid conflict
-        app.MapDelete("/{bucket}/{*key}/abort", AbortMultipartUploadAsync)
+        // AbortMultipartUpload - distinguished by ?uploadId query parameter
+        app.MapDelete("/{bucket}/{*key}", AbortMultipartUploadAsync)
             .WithName("AbortMultipartUpload");
 
         // ListMultipartUploads
         app.MapGet("/{bucket}/uploads", ListMultipartUploadsAsync)
             .WithName("ListMultipartUploads");
 
-        // ListParts - remove catch-all from middle of route
+        // ListParts - query parameters only
         app.MapGet("/{bucket}/parts", ListPartsAsync)
             .WithName("ListParts");
     }
