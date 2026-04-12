@@ -11,6 +11,7 @@ using OpenTelemetry.Resources;
 using OpenTelemetry.Trace;
 using Serilog;
 using Stratum.Api.Endpoints;
+using Stratum.Api.HealthChecks;
 using Stratum.Api.Middleware;
 using Stratum.Application.Interfaces;
 using Stratum.Domain.Interfaces;
@@ -51,7 +52,15 @@ public static class ServiceCollectionExtensions
 
         // Add API explorer and Swagger for development
         services.AddEndpointsApiExplorer();
-        services.AddSwaggerGen();
+        services.AddSwaggerGen(c =>
+        {
+            c.SwaggerDoc("v1", new OpenApiInfo
+            {
+                Title = "Stratum API",
+                Version = "v1",
+                Description = "S3-Compatible Object Storage API"
+            });
+        });
 
         // Register infrastructure services
         services.AddSingleton<IMetadataStore>(sp => new SQLiteMetadataStore("Data Source=./data/stratum.db"));
@@ -103,6 +112,9 @@ public static class ApplicationExtensions
         // Use request ID middleware for tracing
         app.UseRequestId();
 
+        // Use performance timing middleware
+        app.UsePerformanceTiming();
+
         // Use request logging middleware
         app.UseRequestLogging();
 
@@ -153,7 +165,8 @@ public static class EndpointRouteBuilderExtensions
         app.MapGet("/", () => Results.Ok(new
         {
             Service = "Stratum S3-Compatible Object Storage",
-            Version = "0.1.0",
+            Version = "0.1.0-alpha.1",
+            ApiVersion = "v1",
             Status = "Running"
         }));
 
