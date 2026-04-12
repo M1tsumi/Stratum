@@ -27,6 +27,54 @@ public class ConcurrentOperationsBenchmarks
         }
     }
 
+    [IterationSetup(Target = nameof(ConcurrentWrites))]
+    public void SetupConcurrentWrites()
+    {
+        if (Directory.Exists(_dataDirectory))
+        {
+            Directory.Delete(_dataDirectory, true);
+        }
+        Directory.CreateDirectory(_dataDirectory);
+    }
+
+    [IterationCleanup(Target = nameof(ConcurrentWrites))]
+    public void CleanupConcurrentWrites()
+    {
+        if (Directory.Exists(_dataDirectory))
+        {
+            Directory.Delete(_dataDirectory, true);
+        }
+    }
+
+    [IterationSetup(Target = nameof(ConcurrentReads))]
+    public void SetupConcurrentReads()
+    {
+        if (Directory.Exists(_dataDirectory))
+        {
+            Directory.Delete(_dataDirectory, true);
+        }
+        Directory.CreateDirectory(_dataDirectory);
+
+        // Pre-populate with files for reading
+        for (int i = 0; i < 1000; i++)
+        {
+            var data = new byte[1024];
+            Random.Shared.NextBytes(data);
+            var key = $"test-{i}";
+            var filePath = Path.Combine(_dataDirectory, key);
+            File.WriteAllBytes(filePath, data);
+        }
+    }
+
+    [IterationCleanup(Target = nameof(ConcurrentReads))]
+    public void CleanupConcurrentReads()
+    {
+        if (Directory.Exists(_dataDirectory))
+        {
+            Directory.Delete(_dataDirectory, true);
+        }
+    }
+
     [Benchmark]
     [Arguments(10)]
     [Arguments(50)]

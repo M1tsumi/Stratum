@@ -43,6 +43,25 @@ public class ObjectUploadBenchmarks
         await File.WriteAllBytesAsync(filePath, data);
     }
 
+    [IterationSetup(Target = nameof(WriteMultipleFiles))]
+    public void SetupWriteMultipleFiles()
+    {
+        if (Directory.Exists(_dataDirectory))
+        {
+            Directory.Delete(_dataDirectory, true);
+        }
+        Directory.CreateDirectory(_dataDirectory);
+    }
+
+    [IterationCleanup(Target = nameof(WriteMultipleFiles))]
+    public void CleanupWriteMultipleFiles()
+    {
+        if (Directory.Exists(_dataDirectory))
+        {
+            Directory.Delete(_dataDirectory, true);
+        }
+    }
+
     [Benchmark]
     [Arguments(100)]
     [Arguments(1000)]

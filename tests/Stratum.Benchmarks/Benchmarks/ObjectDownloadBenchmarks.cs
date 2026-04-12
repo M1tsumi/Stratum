@@ -41,6 +41,38 @@ public class ObjectDownloadBenchmarks
         }
     }
 
+    [IterationSetup(Target = nameof(ReadMultipleFiles))]
+    public void SetupReadMultipleFiles()
+    {
+        if (Directory.Exists(_dataDirectory))
+        {
+            Directory.Delete(_dataDirectory, true);
+        }
+        Directory.CreateDirectory(_dataDirectory);
+        _testFiles.Clear();
+
+        // Pre-populate with files
+        for (int i = 0; i < 10000; i++)
+        {
+            var data = new byte[1024];
+            Random.Shared.NextBytes(data);
+            var key = $"test-{i}";
+            var filePath = Path.Combine(_dataDirectory, key);
+            File.WriteAllBytes(filePath, data);
+            _testFiles[key] = 1024;
+        }
+    }
+
+    [IterationCleanup(Target = nameof(ReadMultipleFiles))]
+    public void CleanupReadMultipleFiles()
+    {
+        if (Directory.Exists(_dataDirectory))
+        {
+            Directory.Delete(_dataDirectory, true);
+        }
+        _testFiles.Clear();
+    }
+
     [Benchmark]
     [Arguments(1024)] // 1KB
     [Arguments(1024 * 1024)] // 1MB
