@@ -45,27 +45,34 @@ public static class BucketEndpoints
             return Results.BadRequest(new S3Error
             {
                 Code = "InvalidBucketName",
-                Message = "The specified bucket name is not valid.",
+                Message = $"Bucket name '{bucket}' is not valid. Bucket names must: be between 3-63 characters, start/end with alphanumeric, contain only lowercase letters, numbers, hyphens, and dots, and not be formatted as an IP address.",
                 Resource = bucket
             });
         }
 
-        var exists = await metadataStore.BucketExistsAsync(bucket, cancellationToken);
-        if (exists)
+        try
         {
-            return Results.Conflict(new S3Error
+            var exists = await metadataStore.BucketExistsAsync(bucket, cancellationToken);
+            if (exists)
             {
-                Code = "BucketAlreadyExists",
-                Message = "The specified bucket already exists.",
-                Resource = bucket
-            });
-        }
+                return Results.Conflict(new S3Error
+                {
+                    Code = "BucketAlreadyExists",
+                    Message = $"Bucket '{bucket}' already exists. Choose a different bucket name.",
+                    Resource = bucket
+                });
+            }
 
-        var newBucket = new Bucket(bucket, "us-east-1");
-        await metadataStore.CreateBucketAsync(newBucket, cancellationToken);
-        
-        context.Response.Headers.Location = $"/{bucket}";
-        return Results.Ok();
+            var newBucket = new Bucket(bucket, "us-east-1");
+            await metadataStore.CreateBucketAsync(newBucket, cancellationToken);
+            
+            context.Response.Headers.Location = $"/{bucket}";
+            return Results.Ok();
+        }
+        catch (Exception ex)
+        {
+            return Results.Problem($"Failed to create bucket '{bucket}': {ex.Message}");
+        }
     }
 
     /// <summary>
@@ -76,19 +83,26 @@ public static class BucketEndpoints
         IMetadataStore metadataStore,
         CancellationToken cancellationToken)
     {
-        var exists = await metadataStore.BucketExistsAsync(bucket, cancellationToken);
-        if (!exists)
+        try
         {
-            return Results.NotFound(new S3Error
+            var exists = await metadataStore.BucketExistsAsync(bucket, cancellationToken);
+            if (!exists)
             {
-                Code = "NoSuchBucket",
-                Message = "The specified bucket does not exist.",
-                Resource = bucket
-            });
-        }
+                return Results.NotFound(new S3Error
+                {
+                    Code = "NoSuchBucket",
+                    Message = $"Bucket '{bucket}' does not exist. Verify the bucket name and try again.",
+                    Resource = bucket
+                });
+            }
 
-        await metadataStore.DeleteBucketAsync(bucket, cancellationToken);
-        return Results.NoContent();
+            await metadataStore.DeleteBucketAsync(bucket, cancellationToken);
+            return Results.NoContent();
+        }
+        catch (Exception ex)
+        {
+            return Results.Problem($"Failed to delete bucket '{bucket}': {ex.Message}");
+        }
     }
 
     /// <summary>
@@ -99,18 +113,25 @@ public static class BucketEndpoints
         IMetadataStore metadataStore,
         CancellationToken cancellationToken)
     {
-        var bucketData = await metadataStore.GetBucketAsync(bucket, cancellationToken);
-        if (bucketData == null)
+        try
         {
-            return Results.NotFound(new S3Error
+            var exists = await metadataStore.BucketExistsAsync(bucket, cancellationToken);
+            if (!exists)
             {
-                Code = "NoSuchBucket",
-                Message = "The specified bucket does not exist.",
-                Resource = bucket
-            });
-        }
+                return Results.NotFound(new S3Error
+                {
+                    Code = "NoSuchBucket",
+                    Message = $"Bucket '{bucket}' does not exist. Verify the bucket name and try again.",
+                    Resource = bucket
+                });
+            }
 
-        return Results.Ok();
+            return Results.Ok();
+        }
+        catch (Exception ex)
+        {
+            return Results.Problem($"Failed to check bucket '{bucket}': {ex.Message}");
+        }
     }
 
     /// <summary>
@@ -120,21 +141,28 @@ public static class BucketEndpoints
         IMetadataStore metadataStore,
         CancellationToken cancellationToken)
     {
-        var buckets = await metadataStore.ListBucketsAsync(cancellationToken);
-
-        return Results.Ok(new
+        try
         {
-            Buckets = buckets.Select(b => new
+            var buckets = await metadataStore.ListBucketsAsync(cancellationToken);
+
+            return Results.Ok(new
             {
-                Name = b.Name,
-                CreationDate = b.CreatedAt.ToString("o")
-            }),
-            Owner = new
-            {
-                ID = "stratum",
-                DisplayName = "Stratum"
-            }
-        });
+                Buckets = buckets.Select(b => new
+                {
+                    Name = b.Name,
+                    CreationDate = b.CreatedAt.ToString("o")
+                }),
+                Owner = new
+                {
+                    ID = "stratum",
+                    DisplayName = "Stratum"
+                }
+            });
+        }
+        catch (Exception ex)
+        {
+            return Results.Problem($"Failed to list buckets: {ex.Message}");
+        }
     }
 
     /// <summary>
