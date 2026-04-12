@@ -55,43 +55,50 @@ public static class MultipartEndpoints
             return Results.BadRequest(new S3Error
             {
                 Code = "InvalidRequest",
-                Message = "Object key cannot be empty.",
+                Message = "Object key cannot be empty. Provide a valid object key.",
                 Resource = $"{bucket}/"
             });
         }
 
-        var bucketExists = await metadataStore.BucketExistsAsync(bucket, cancellationToken);
-        if (!bucketExists)
+        try
         {
-            return Results.NotFound(new S3Error
+            var bucketExists = await metadataStore.BucketExistsAsync(bucket, cancellationToken);
+            if (!bucketExists)
             {
-                Code = "NoSuchBucket",
-                Message = "The specified bucket does not exist.",
-                Resource = bucket
+                return Results.NotFound(new S3Error
+                {
+                    Code = "NoSuchBucket",
+                    Message = $"Bucket '{bucket}' does not exist. Create the bucket first.",
+                    Resource = bucket
+                });
+            }
+
+            var uploadId = Guid.NewGuid().ToString();
+            var upload = new MultipartUpload(
+                uploadId,
+                bucket,
+                key,
+                DateTime.UtcNow,
+                null,
+                null,
+                null,
+                new Dictionary<string, string>(),
+                "STANDARD",
+                new List<MultipartPart>());
+
+            await metadataStore.CreateMultipartUploadAsync(upload, cancellationToken);
+
+            return Results.Ok(new
+            {
+                Bucket = bucket,
+                Key = key,
+                UploadId = uploadId
             });
         }
-
-        var uploadId = Guid.NewGuid().ToString();
-        var upload = new MultipartUpload(
-            uploadId,
-            bucket,
-            key,
-            DateTime.UtcNow,
-            null,
-            null,
-            null,
-            new Dictionary<string, string>(),
-            "STANDARD",
-            new List<MultipartPart>());
-
-        await metadataStore.CreateMultipartUploadAsync(upload, cancellationToken);
-
-        return Results.Ok(new
+        catch (Exception ex)
         {
-            Bucket = bucket,
-            Key = key,
-            UploadId = uploadId
-        });
+            return Results.Problem($"Failed to create multipart upload for object '{key}' in bucket '{bucket}': {ex.Message}");
+        }
     }
 
     /// <summary>
@@ -113,35 +120,42 @@ public static class MultipartEndpoints
             return Results.BadRequest(new S3Error
             {
                 Code = "InvalidRequest",
-                Message = "Object key and upload ID are required.",
+                Message = "Object key and upload ID are required. Provide both parameters.",
                 Resource = $"{bucket}/"
             });
         }
 
-        var upload = await metadataStore.GetMultipartUploadAsync(uploadId, cancellationToken);
-        if (upload == null)
+        try
         {
-            return Results.NotFound(new S3Error
+            var upload = await metadataStore.GetMultipartUploadAsync(uploadId, cancellationToken);
+            if (upload == null)
             {
-                Code = "NoSuchUpload",
-                Message = "The specified multipart upload does not exist.",
-                Resource = $"{bucket}/{key}"
+                return Results.NotFound(new S3Error
+                {
+                    Code = "NoSuchUpload",
+                    Message = $"Multipart upload '{uploadId}' does not exist. Verify the upload ID and try again.",
+                    Resource = $"{bucket}/{key}"
+                });
+            }
+
+            var eTag = await eTagCalculator.CalculateSinglePartETagAsync(request.Body, cancellationToken);
+            var size = request.ContentLength ?? 0;
+
+            var partKey = $"{uploadId}/part{partNumber}";
+            await objectStore.PutObjectAsync(bucket, partKey, request.Body, cancellationToken);
+
+            var part = new MultipartPart(partNumber, $"\"{eTag}\"", size, DateTime.UtcNow);
+            await metadataStore.AddPartAsync(uploadId, part, cancellationToken);
+
+            return Results.Ok(new
+            {
+                ETag = $"\"{eTag}\""
             });
         }
-
-        var eTag = await eTagCalculator.CalculateSinglePartETagAsync(request.Body, cancellationToken);
-        var size = request.ContentLength ?? 0;
-
-        var partKey = $"{uploadId}/part{partNumber}";
-        await objectStore.PutObjectAsync(bucket, partKey, request.Body, cancellationToken);
-
-        var part = new MultipartPart(partNumber, $"\"{eTag}\"", size, DateTime.UtcNow);
-        await metadataStore.AddPartAsync(uploadId, part, cancellationToken);
-
-        return Results.Ok(new
+        catch (Exception ex)
         {
-            ETag = $"\"{eTag}\""
-        });
+            return Results.Problem($"Failed to upload part {partNumber} for object '{key}' in bucket '{bucket}': {ex.Message}");
+        }
     }
 
     /// <summary>
@@ -161,48 +175,55 @@ public static class MultipartEndpoints
             return Results.BadRequest(new S3Error
             {
                 Code = "InvalidRequest",
-                Message = "Object key and upload ID are required.",
+                Message = "Object key and upload ID are required. Provide both parameters.",
                 Resource = $"{bucket}/"
             });
         }
 
-        var upload = await metadataStore.GetMultipartUploadAsync(uploadId, cancellationToken);
-        if (upload == null)
+        try
         {
-            return Results.NotFound(new S3Error
+            var upload = await metadataStore.GetMultipartUploadAsync(uploadId, cancellationToken);
+            if (upload == null)
             {
-                Code = "NoSuchUpload",
-                Message = "The specified multipart upload does not exist.",
-                Resource = $"{bucket}/{key}"
+                return Results.NotFound(new S3Error
+                {
+                    Code = "NoSuchUpload",
+                    Message = $"Multipart upload '{uploadId}' does not exist. Verify the upload ID and try again.",
+                    Resource = $"{bucket}/{key}"
+                });
+            }
+
+            var partETags = upload.Parts.Select(p => p.ETag.Trim('"')).ToList();
+            var combinedETag = eTagCalculator.CalculateMultipartETag(partETags);
+
+            using var combinedStream = new MemoryStream();
+            foreach (var part in upload.Parts.OrderBy(p => p.PartNumber))
+            {
+                var partKey = $"{uploadId}/part{part.PartNumber}";
+                var partStream = await objectStore.GetObjectAsync(bucket, partKey, cancellationToken);
+                if (partStream != null)
+                {
+                    await partStream.CopyToAsync(combinedStream, cancellationToken);
+                    await objectStore.DeleteObjectAsync(bucket, partKey, cancellationToken);
+                }
+            }
+
+            combinedStream.Position = 0;
+            await objectStore.PutObjectAsync(bucket, key, combinedStream, cancellationToken);
+            await metadataStore.CompleteMultipartUploadAsync(uploadId, cancellationToken);
+
+            return Results.Ok(new
+            {
+                Location = $"/{bucket}/{key}",
+                Bucket = bucket,
+                Key = key,
+                ETag = $"\"{combinedETag}\""
             });
         }
-
-        var partETags = upload.Parts.Select(p => p.ETag.Trim('"')).ToList();
-        var combinedETag = eTagCalculator.CalculateMultipartETag(partETags);
-
-        using var combinedStream = new MemoryStream();
-        foreach (var part in upload.Parts.OrderBy(p => p.PartNumber))
+        catch (Exception ex)
         {
-            var partKey = $"{uploadId}/part{part.PartNumber}";
-            var partStream = await objectStore.GetObjectAsync(bucket, partKey, cancellationToken);
-            if (partStream != null)
-            {
-                await partStream.CopyToAsync(combinedStream, cancellationToken);
-                await objectStore.DeleteObjectAsync(bucket, partKey, cancellationToken);
-            }
+            return Results.Problem($"Failed to complete multipart upload '{uploadId}' for object '{key}' in bucket '{bucket}': {ex.Message}");
         }
-
-        combinedStream.Position = 0;
-        await objectStore.PutObjectAsync(bucket, key, combinedStream, cancellationToken);
-        await metadataStore.CompleteMultipartUploadAsync(uploadId, cancellationToken);
-
-        return Results.Ok(new
-        {
-            Location = $"/{bucket}/{key}",
-            Bucket = bucket,
-            Key = key,
-            ETag = $"\"{combinedETag}\""
-        });
     }
 
     /// <summary>
@@ -221,30 +242,37 @@ public static class MultipartEndpoints
             return Results.BadRequest(new S3Error
             {
                 Code = "InvalidRequest",
-                Message = "Upload ID is required.",
+                Message = "Upload ID is required. Provide a valid upload ID.",
                 Resource = $"{bucket}/"
             });
         }
 
-        var upload = await metadataStore.GetMultipartUploadAsync(uploadId, cancellationToken);
-        if (upload == null)
+        try
         {
-            return Results.NotFound(new S3Error
+            var upload = await metadataStore.GetMultipartUploadAsync(uploadId, cancellationToken);
+            if (upload == null)
             {
-                Code = "NoSuchUpload",
-                Message = "The specified multipart upload does not exist.",
-                Resource = $"{bucket}/{key}"
-            });
-        }
+                return Results.NotFound(new S3Error
+                {
+                    Code = "NoSuchUpload",
+                    Message = $"Multipart upload '{uploadId}' does not exist. Verify the upload ID and try again.",
+                    Resource = $"{bucket}/{key}"
+                });
+            }
 
-        foreach (var part in upload.Parts)
+            foreach (var part in upload.Parts)
+            {
+                var partKey = $"{uploadId}/part{part.PartNumber}";
+                await objectStore.DeleteObjectAsync(bucket, partKey, cancellationToken);
+            }
+
+            await metadataStore.AbortMultipartUploadAsync(uploadId, cancellationToken);
+            return Results.NoContent();
+        }
+        catch (Exception ex)
         {
-            var partKey = $"{uploadId}/part{part.PartNumber}";
-            await objectStore.DeleteObjectAsync(bucket, partKey, cancellationToken);
+            return Results.Problem($"Failed to abort multipart upload '{uploadId}' for object '{key}' in bucket '{bucket}': {ex.Message}");
         }
-
-        await metadataStore.AbortMultipartUploadAsync(uploadId, cancellationToken);
-        return Results.NoContent();
     }
 
     /// <summary>
@@ -257,31 +285,38 @@ public static class MultipartEndpoints
         [FromQuery] string? prefix = null,
         [FromQuery] bool uploads = false)
     {
-        var bucketExists = await metadataStore.BucketExistsAsync(bucket, cancellationToken);
-        if (!bucketExists)
+        try
         {
-            return Results.NotFound(new S3Error
+            var bucketExists = await metadataStore.BucketExistsAsync(bucket, cancellationToken);
+            if (!bucketExists)
             {
-                Code = "NoSuchBucket",
-                Message = "The specified bucket does not exist.",
-                Resource = bucket
+                return Results.NotFound(new S3Error
+                {
+                    Code = "NoSuchBucket",
+                    Message = $"Bucket '{bucket}' does not exist. Verify the bucket name and try again.",
+                    Resource = bucket
+                });
+            }
+
+            var uploadList = await metadataStore.ListMultipartUploadsAsync(bucket, prefix, cancellationToken);
+
+            return Results.Ok(new
+            {
+                Bucket = bucket,
+                Uploads = uploadList.Select(u => new
+                {
+                    Key = u.Key,
+                    UploadId = u.UploadId,
+                    Initiated = u.InitiatedAt.ToString("o"),
+                    StorageClass = u.StorageClass
+                }),
+                CommonPrefixes = new List<object>()
             });
         }
-
-        var uploadList = await metadataStore.ListMultipartUploadsAsync(bucket, prefix, cancellationToken);
-
-        return Results.Ok(new
+        catch (Exception ex)
         {
-            Bucket = bucket,
-            Uploads = uploadList.Select(u => new
-            {
-                Key = u.Key,
-                UploadId = u.UploadId,
-                Initiated = u.InitiatedAt.ToString("o"),
-                StorageClass = u.StorageClass
-            }),
-            CommonPrefixes = new List<object>()
-        });
+            return Results.Problem($"Failed to list multipart uploads in bucket '{bucket}': {ex.Message}");
+        }
     }
 
     /// <summary>
@@ -299,35 +334,42 @@ public static class MultipartEndpoints
             return Results.BadRequest(new S3Error
             {
                 Code = "InvalidRequest",
-                Message = "Upload ID is required.",
+                Message = "Upload ID is required. Provide a valid upload ID.",
                 Resource = $"{bucket}/"
             });
         }
 
-        var upload = await metadataStore.GetMultipartUploadAsync(uploadId, cancellationToken);
-        if (upload == null)
+        try
         {
-            return Results.NotFound(new S3Error
+            var upload = await metadataStore.GetMultipartUploadAsync(uploadId, cancellationToken);
+            if (upload == null)
             {
-                Code = "NoSuchUpload",
-                Message = "The specified multipart upload does not exist.",
-                Resource = $"{bucket}/{key}"
+                return Results.NotFound(new S3Error
+                {
+                    Code = "NoSuchUpload",
+                    Message = $"Multipart upload '{uploadId}' does not exist. Verify the upload ID and try again.",
+                    Resource = $"{bucket}/{key}"
+                });
+            }
+
+            return Results.Ok(new
+            {
+                Bucket = bucket,
+                Key = upload.Key,
+                UploadId = uploadId,
+                Parts = upload.Parts.Select(p => new
+                {
+                    PartNumber = p.PartNumber,
+                    ETag = p.ETag,
+                    Size = p.Size,
+                    LastModified = p.LastModified.ToString("o")
+                })
             });
         }
-
-        return Results.Ok(new
+        catch (Exception ex)
         {
-            Bucket = bucket,
-            Key = upload.Key,
-            UploadId = uploadId,
-            Parts = upload.Parts.Select(p => new
-            {
-                PartNumber = p.PartNumber,
-                ETag = p.ETag,
-                Size = p.Size,
-                LastModified = p.LastModified.ToString("o")
-            })
-        });
+            return Results.Problem($"Failed to list parts for multipart upload '{uploadId}' in bucket '{bucket}': {ex.Message}");
+        }
     }
 
     /// <summary>
