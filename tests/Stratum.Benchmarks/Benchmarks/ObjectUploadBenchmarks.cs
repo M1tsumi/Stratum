@@ -5,7 +5,6 @@ using Stratum.Domain.Entities;
 namespace Stratum.Benchmarks.Benchmarks;
 
 [MemoryDiagnoser]
-[SimpleJob(RuntimeMoniker.Net80)]
 public class ObjectUploadBenchmarks
 {
     private string _dataDirectory = "./benchmark-data";

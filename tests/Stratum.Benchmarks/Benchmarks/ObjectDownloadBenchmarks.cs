@@ -4,7 +4,6 @@ using BenchmarkDotNet.Jobs;
 namespace Stratum.Benchmarks.Benchmarks;
 
 [MemoryDiagnoser]
-[SimpleJob(RuntimeMoniker.Net80)]
 public class ObjectDownloadBenchmarks
 {
     private string _dataDirectory = "./benchmark-data";
