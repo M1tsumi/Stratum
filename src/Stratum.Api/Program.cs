@@ -1,14 +1,22 @@
 using Serilog;
 using Stratum.Api.Extensions;
 
+var environment = Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT") ?? "Production";
+
 Log.Logger = new LoggerConfiguration()
     .ReadFrom.Configuration(new ConfigurationBuilder()
         .AddJsonFile("appsettings.json")
         .AddEnvironmentVariables()
         .Build())
     .Enrich.FromLogContext()
-    .WriteTo.Console()
-    .WriteTo.File("logs/stratum-.txt", rollingInterval: RollingInterval.Day)
+    .Enrich.WithProperty("Application", "Stratum")
+    .Enrich.WithProperty("Environment", environment)
+    .Enrich.WithProperty("Version", "0.1.0-alpha.1")
+    .WriteTo.Console(outputTemplate: "[{Timestamp:yyyy-MM-dd HH:mm:ss} {Level:u3}] [{SourceContext}] {Message:lj}{NewLine}{Exception}")
+    .WriteTo.File("logs/stratum-.txt",
+        rollingInterval: RollingInterval.Day,
+        outputTemplate: "[{Timestamp:yyyy-MM-dd HH:mm:ss} {Level:u3}] [{SourceContext}] {Message:lj}{NewLine}{Exception}",
+        retainedFileCountLimit: 30)
     .CreateLogger();
 
 try
