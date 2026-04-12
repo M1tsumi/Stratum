@@ -69,6 +69,12 @@ export Authentication__EnableAnonymousAccess="false"
 | `ResponseCompression:EnableForHttps` | bool | `true` | Enable compression for HTTPS responses |
 | `ResponseCompression:Providers` | array | `["Brotli", "Gzip"]` | Compression providers to use |
 
+### Rate Limiting
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `RateLimit:MaxRequestsPerMinute` | int | `100` | Maximum requests per minute per client (0 to disable) |
+
 ### Logging
 
 | Option | Type | Default | Description |
