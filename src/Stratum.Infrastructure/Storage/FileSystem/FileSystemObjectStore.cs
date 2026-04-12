@@ -2,6 +2,7 @@ namespace Stratum.Infrastructure.Storage.FileSystem;
 
 using Stratum.Domain.Interfaces;
 using System.IO.Pipelines;
+using System.Threading;
 
 /// <summary>
 /// FileSystem implementation of the object store.
@@ -11,17 +12,23 @@ using System.IO.Pipelines;
 public sealed class FileSystemObjectStore : IObjectStore
 {
     private readonly string _baseDirectory;
+    private const int OptimalBufferSize = 1024 * 1024; // 1MB optimal buffer size for file I/O
+    private readonly SemaphoreSlim _concurrencySemaphore;
 
     /// <summary>
     /// Initializes a new instance of the FileSystemObjectStore class.
     /// </summary>
     /// <param name="baseDirectory">The base directory where objects will be stored.</param>
-    public FileSystemObjectStore(string baseDirectory)
+    /// <param name="maxConcurrentOperations">Maximum concurrent file operations (default: 100).</param>
+    public FileSystemObjectStore(string baseDirectory, int maxConcurrentOperations = 100)
     {
         _baseDirectory = baseDirectory ?? throw new ArgumentNullException(nameof(baseDirectory));
-        
+
         // Ensure base directory exists
         Directory.CreateDirectory(_baseDirectory);
+
+        // Create semaphore for throttling concurrent operations
+        _concurrencySemaphore = new SemaphoreSlim(maxConcurrentOperations, maxConcurrentOperations);
     }
 
     // Core operations
@@ -32,41 +39,49 @@ public sealed class FileSystemObjectStore : IObjectStore
         Stream content,
         CancellationToken cancellationToken = default)
     {
-        var filePath = GetPath(bucketName, key);
-        var directoryPath = Path.GetDirectoryName(filePath);
-
-        if (directoryPath != null && !Directory.Exists(directoryPath))
-        {
-            Directory.CreateDirectory(directoryPath);
-        }
-
-        // Use temporary file for atomic write
-        var tempFilePath = $"{filePath}.tmp";
-
+        await _concurrencySemaphore.WaitAsync(cancellationToken);
         try
         {
-            await using var fileStream = new FileStream(
-                tempFilePath,
-                FileMode.Create,
-                FileAccess.Write,
-                FileShare.None,
-                bufferSize: 81920,
-                useAsync: true);
+            var filePath = GetPath(bucketName, key);
+            var directoryPath = Path.GetDirectoryName(filePath);
 
-            await content.CopyToAsync(fileStream, cancellationToken);
-            await fileStream.FlushAsync(cancellationToken);
-
-            // Atomic rename
-            File.Move(tempFilePath, filePath);
-        }
-        catch
-        {
-            // Clean up temp file on failure
-            if (File.Exists(tempFilePath))
+            if (directoryPath != null && !Directory.Exists(directoryPath))
             {
-                File.Delete(tempFilePath);
+                Directory.CreateDirectory(directoryPath);
             }
-            throw;
+
+            // Use temporary file for atomic write
+            var tempFilePath = $"{filePath}.tmp";
+
+            try
+            {
+                await using var fileStream = new FileStream(
+                    tempFilePath,
+                    FileMode.Create,
+                    FileAccess.Write,
+                    FileShare.None,
+                    bufferSize: OptimalBufferSize,
+                    useAsync: true);
+
+                await content.CopyToAsync(fileStream, cancellationToken);
+                await fileStream.FlushAsync(cancellationToken);
+
+                // Atomic rename
+                File.Move(tempFilePath, filePath);
+            }
+            catch
+            {
+                // Clean up temp file on failure
+                if (File.Exists(tempFilePath))
+                {
+                    File.Delete(tempFilePath);
+                }
+                throw;
+            }
+        }
+        finally
+        {
+            _concurrencySemaphore.Release();
         }
     }
 
@@ -75,22 +90,31 @@ public sealed class FileSystemObjectStore : IObjectStore
         string key,
         CancellationToken cancellationToken = default)
     {
-        var filePath = GetPath(bucketName, key);
-
-        if (!File.Exists(filePath))
+        await _concurrencySemaphore.WaitAsync(cancellationToken);
+        try
         {
-            throw new FileNotFoundException($"Object not found: {bucketName}/{key}");
+            var filePath = GetPath(bucketName, key);
+
+            if (!File.Exists(filePath))
+            {
+                throw new FileNotFoundException($"Object not found: {bucketName}/{key}");
+            }
+
+            var fileStream = new FileStream(
+                filePath,
+                FileMode.Open,
+                FileAccess.Read,
+                FileShare.Read,
+                bufferSize: OptimalBufferSize,
+                useAsync: true);
+
+            return fileStream;
         }
-
-        var fileStream = new FileStream(
-            filePath,
-            FileMode.Open,
-            FileAccess.Read,
-            FileShare.Read,
-            bufferSize: 81920,
-            useAsync: true);
-
-        return fileStream;
+        catch
+        {
+            _concurrencySemaphore.Release();
+            throw;
+        }
     }
 
     public Task DeleteObjectAsync(
@@ -169,7 +193,7 @@ public sealed class FileSystemObjectStore : IObjectStore
             FileMode.Open,
             FileAccess.Read,
             FileShare.Read,
-            bufferSize: 81920,
+            bufferSize: OptimalBufferSize,
             useAsync: true);
 
         fileStream.Seek(offset, SeekOrigin.Begin);
@@ -193,21 +217,29 @@ public sealed class FileSystemObjectStore : IObjectStore
         Stream content,
         CancellationToken cancellationToken = default)
     {
-        var partsDirectory = Path.Combine(_baseDirectory, "multipart-uploads", uploadId);
-        Directory.CreateDirectory(partsDirectory);
+        await _concurrencySemaphore.WaitAsync(cancellationToken);
+        try
+        {
+            var partsDirectory = Path.Combine(_baseDirectory, "multipart-uploads", uploadId);
+            Directory.CreateDirectory(partsDirectory);
 
-        var partFilePath = Path.Combine(partsDirectory, $"{partNumber}.part");
+            var partFilePath = Path.Combine(partsDirectory, $"{partNumber}.part");
 
-        await using var fileStream = new FileStream(
-            partFilePath,
-            FileMode.Create,
-            FileAccess.Write,
-            FileShare.None,
-            bufferSize: 81920,
-            useAsync: true);
+            await using var fileStream = new FileStream(
+                partFilePath,
+                FileMode.Create,
+                FileAccess.Write,
+                FileShare.None,
+                bufferSize: OptimalBufferSize,
+                useAsync: true);
 
-        await content.CopyToAsync(fileStream, cancellationToken);
-        await fileStream.FlushAsync(cancellationToken);
+            await content.CopyToAsync(fileStream, cancellationToken);
+            await fileStream.FlushAsync(cancellationToken);
+        }
+        finally
+        {
+            _concurrencySemaphore.Release();
+        }
     }
 
     public async Task<Stream> GetPartAsync(
@@ -217,23 +249,32 @@ public sealed class FileSystemObjectStore : IObjectStore
         int partNumber,
         CancellationToken cancellationToken = default)
     {
-        var partsDirectory = Path.Combine(_baseDirectory, "multipart-uploads", uploadId);
-        var partFilePath = Path.Combine(partsDirectory, $"{partNumber}.part");
-
-        if (!File.Exists(partFilePath))
+        await _concurrencySemaphore.WaitAsync(cancellationToken);
+        try
         {
-            throw new FileNotFoundException($"Part not found: uploadId={uploadId}, partNumber={partNumber}");
+            var partsDirectory = Path.Combine(_baseDirectory, "multipart-uploads", uploadId);
+            var partFilePath = Path.Combine(partsDirectory, $"{partNumber}.part");
+
+            if (!File.Exists(partFilePath))
+            {
+                throw new FileNotFoundException($"Part not found: uploadId={uploadId}, partNumber={partNumber}");
+            }
+
+            var fileStream = new FileStream(
+                partFilePath,
+                FileMode.Open,
+                FileAccess.Read,
+                FileShare.Read,
+                bufferSize: OptimalBufferSize,
+                useAsync: true);
+
+            return fileStream;
         }
-
-        var fileStream = new FileStream(
-            partFilePath,
-            FileMode.Open,
-            FileAccess.Read,
-            FileShare.Read,
-            bufferSize: 81920,
-            useAsync: true);
-
-        return fileStream;
+        catch
+        {
+            _concurrencySemaphore.Release();
+            throw;
+        }
     }
 
     public Task DeletePartAsync(
@@ -261,64 +302,72 @@ public sealed class FileSystemObjectStore : IObjectStore
         IReadOnlyList<string> partETags,
         CancellationToken cancellationToken = default)
     {
-        var partsDirectory = Path.Combine(_baseDirectory, "multipart-uploads", uploadId);
-        var targetFilePath = GetPath(bucketName, key);
-        var targetDirectory = Path.GetDirectoryName(targetFilePath);
-
-        if (targetDirectory != null && !Directory.Exists(targetDirectory))
-        {
-            Directory.CreateDirectory(targetDirectory);
-        }
-
-        // Use temporary file for atomic write
-        var tempFilePath = $"{targetFilePath}.tmp";
-
+        await _concurrencySemaphore.WaitAsync(cancellationToken);
         try
         {
-            await using var targetStream = new FileStream(
-                tempFilePath,
-                FileMode.Create,
-                FileAccess.Write,
-                FileShare.None,
-                bufferSize: 81920,
-                useAsync: true);
+            var partsDirectory = Path.Combine(_baseDirectory, "multipart-uploads", uploadId);
+            var targetFilePath = GetPath(bucketName, key);
+            var targetDirectory = Path.GetDirectoryName(targetFilePath);
 
-            // Concatenate all parts in order
-            for (var i = 0; i < partETags.Count; i++)
+            if (targetDirectory != null && !Directory.Exists(targetDirectory))
             {
-                var partFilePath = Path.Combine(partsDirectory, $"{i + 1}.part");
-                if (!File.Exists(partFilePath))
-                {
-                    throw new FileNotFoundException($"Part not found: {partFilePath}");
-                }
+                Directory.CreateDirectory(targetDirectory);
+            }
 
-                await using var partStream = new FileStream(
-                    partFilePath,
-                    FileMode.Open,
-                    FileAccess.Read,
-                    FileShare.Read,
-                    bufferSize: 81920,
+            // Use temporary file for atomic write
+            var tempFilePath = $"{targetFilePath}.tmp";
+
+            try
+            {
+                await using var targetStream = new FileStream(
+                    tempFilePath,
+                    FileMode.Create,
+                    FileAccess.Write,
+                    FileShare.None,
+                    bufferSize: OptimalBufferSize,
                     useAsync: true);
 
-                await partStream.CopyToAsync(targetStream, cancellationToken);
+                // Concatenate all parts in order
+                for (var i = 0; i < partETags.Count; i++)
+                {
+                    var partFilePath = Path.Combine(partsDirectory, $"{i + 1}.part");
+                    if (!File.Exists(partFilePath))
+                    {
+                        throw new FileNotFoundException($"Part not found: {partFilePath}");
+                    }
+
+                    await using var partStream = new FileStream(
+                        partFilePath,
+                        FileMode.Open,
+                        FileAccess.Read,
+                        FileShare.Read,
+                        bufferSize: OptimalBufferSize,
+                        useAsync: true);
+
+                    await partStream.CopyToAsync(targetStream, cancellationToken);
+                }
+
+                await targetStream.FlushAsync(cancellationToken);
+
+                // Atomic rename
+                File.Move(tempFilePath, targetFilePath);
+
+                // Clean up parts directory
+                Directory.Delete(partsDirectory, recursive: true);
             }
-
-            await targetStream.FlushAsync(cancellationToken);
-
-            // Atomic rename
-            File.Move(tempFilePath, targetFilePath);
-
-            // Clean up parts directory
-            Directory.Delete(partsDirectory, recursive: true);
-        }
-        catch
-        {
-            // Clean up temp file on failure
-            if (File.Exists(tempFilePath))
+            catch
             {
-                File.Delete(tempFilePath);
+                // Clean up temp file on failure
+                if (File.Exists(tempFilePath))
+                {
+                    File.Delete(tempFilePath);
+                }
+                throw;
             }
-            throw;
+        }
+        finally
+        {
+            _concurrencySemaphore.Release();
         }
     }
 
@@ -340,23 +389,37 @@ public sealed class FileSystemObjectStore : IObjectStore
 
     // Bulk operations
 
-    public Task DeleteMultipleObjectsAsync(
+    public async Task DeleteMultipleObjectsAsync(
         string bucketName,
         IEnumerable<string> keys,
         CancellationToken cancellationToken = default)
     {
-        foreach (var key in keys)
-        {
-            var filePath = GetPath(bucketName, key);
+        var tasks = new List<Task>();
+        var keysList = keys.ToList();
 
-            if (File.Exists(filePath))
+        foreach (var key in keysList)
+        {
+            await _concurrencySemaphore.WaitAsync(cancellationToken);
+            tasks.Add(Task.Run(async () =>
             {
-                File.Delete(filePath);
-                CleanEmptyDirectories(bucketName, key);
-            }
+                try
+                {
+                    var filePath = GetPath(bucketName, key);
+
+                    if (File.Exists(filePath))
+                    {
+                        File.Delete(filePath);
+                        CleanEmptyDirectories(bucketName, key);
+                    }
+                }
+                finally
+                {
+                    _concurrencySemaphore.Release();
+                }
+            }, cancellationToken));
         }
 
-        return Task.CompletedTask;
+        await Task.WhenAll(tasks);
     }
 
     // Copy operations
@@ -368,55 +431,63 @@ public sealed class FileSystemObjectStore : IObjectStore
         string destinationKey,
         CancellationToken cancellationToken = default)
     {
-        var sourcePath = GetPath(sourceBucketName, sourceKey);
-        var destinationPath = GetPath(destinationBucketName, destinationKey);
-        var destinationDirectory = Path.GetDirectoryName(destinationPath);
-
-        if (!File.Exists(sourcePath))
-        {
-            throw new FileNotFoundException($"Source object not found: {sourceBucketName}/{sourceKey}");
-        }
-
-        if (destinationDirectory != null && !Directory.Exists(destinationDirectory))
-        {
-            Directory.CreateDirectory(destinationDirectory);
-        }
-
-        // Use temporary file for atomic write
-        var tempFilePath = $"{destinationPath}.tmp";
-
+        await _concurrencySemaphore.WaitAsync(cancellationToken);
         try
         {
-            await using var sourceStream = new FileStream(
-                sourcePath,
-                FileMode.Open,
-                FileAccess.Read,
-                FileShare.Read,
-                bufferSize: 81920,
-                useAsync: true);
+            var sourcePath = GetPath(sourceBucketName, sourceKey);
+            var destinationPath = GetPath(destinationBucketName, destinationKey);
+            var destinationDirectory = Path.GetDirectoryName(destinationPath);
 
-            await using var destinationStream = new FileStream(
-                tempFilePath,
-                FileMode.Create,
-                FileAccess.Write,
-                FileShare.None,
-                bufferSize: 81920,
-                useAsync: true);
-
-            await sourceStream.CopyToAsync(destinationStream, cancellationToken);
-            await destinationStream.FlushAsync(cancellationToken);
-
-            // Atomic rename
-            File.Move(tempFilePath, destinationPath);
-        }
-        catch
-        {
-            // Clean up temp file on failure
-            if (File.Exists(tempFilePath))
+            if (!File.Exists(sourcePath))
             {
-                File.Delete(tempFilePath);
+                throw new FileNotFoundException($"Source object not found: {sourceBucketName}/{sourceKey}");
             }
-            throw;
+
+            if (destinationDirectory != null && !Directory.Exists(destinationDirectory))
+            {
+                Directory.CreateDirectory(destinationDirectory);
+            }
+
+            // Use temporary file for atomic write
+            var tempFilePath = $"{destinationPath}.tmp";
+
+            try
+            {
+                await using var sourceStream = new FileStream(
+                    sourcePath,
+                    FileMode.Open,
+                    FileAccess.Read,
+                    FileShare.Read,
+                    bufferSize: OptimalBufferSize,
+                    useAsync: true);
+
+                await using var destinationStream = new FileStream(
+                    tempFilePath,
+                    FileMode.Create,
+                    FileAccess.Write,
+                    FileShare.None,
+                    bufferSize: OptimalBufferSize,
+                    useAsync: true);
+
+                await sourceStream.CopyToAsync(destinationStream, cancellationToken);
+                await destinationStream.FlushAsync(cancellationToken);
+
+                // Atomic rename
+                File.Move(tempFilePath, destinationPath);
+            }
+            catch
+            {
+                // Clean up temp file on failure
+                if (File.Exists(tempFilePath))
+                {
+                    File.Delete(tempFilePath);
+                }
+                throw;
+            }
+        }
+        finally
+        {
+            _concurrencySemaphore.Release();
         }
     }
 

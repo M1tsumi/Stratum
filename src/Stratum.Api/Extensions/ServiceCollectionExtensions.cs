@@ -141,7 +141,17 @@ public static class ServiceCollectionExtensions
 
         // Register infrastructure services
         services.AddSingleton<IMetadataStore>(sp => new SQLiteMetadataStore("Data Source=./data/stratum.db"));
-        services.AddSingleton<IObjectStore>(sp => new FileSystemObjectStore("./data/objects"));
+
+        // Register FileSystemObjectStore with performance optimizations
+        var maxConcurrentOps = configuration.GetValue<int>("Storage:MaxConcurrentOperations", 100);
+        var fileSystemStore = new FileSystemObjectStore("./data/objects", maxConcurrentOps);
+
+        // Wrap with CachedObjectStore for frequently accessed files
+        var maxCacheSize = configuration.GetValue<int>("Storage:MaxCacheSize", 1000);
+        var maxCacheBytes = configuration.GetValue<long>("Storage:MaxCacheBytes", 1024L * 1024 * 1024); // 1GB default
+        var cachedStore = new CachedObjectStore(fileSystemStore, maxCacheSize, maxCacheBytes);
+
+        services.AddSingleton<IObjectStore>(cachedStore);
         services.AddSingleton<SigV4Validator>();
         services.AddSingleton<ETagCalculator>();
 
