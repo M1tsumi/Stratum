@@ -57,52 +57,59 @@ public static class ObjectEndpoints
             return Results.BadRequest(new S3Error
             {
                 Code = "InvalidRequest",
-                Message = "Object key cannot be empty.",
+                Message = "Object key cannot be empty. Provide a valid object key.",
                 Resource = $"{bucket}/"
             });
         }
 
-        var bucketExists = await metadataStore.BucketExistsAsync(bucket, cancellationToken);
-        if (!bucketExists)
+        try
         {
-            return Results.NotFound(new S3Error
+            var bucketExists = await metadataStore.BucketExistsAsync(bucket, cancellationToken);
+            if (!bucketExists)
             {
-                Code = "NoSuchBucket",
-                Message = "The specified bucket does not exist.",
-                Resource = bucket
+                return Results.NotFound(new S3Error
+                {
+                    Code = "NoSuchBucket",
+                    Message = $"Bucket '{bucket}' does not exist. Create the bucket first.",
+                    Resource = bucket
+                });
+            }
+
+            var contentType = request.ContentType ?? "application/octet-stream";
+            var eTag = await eTagCalculator.CalculateSinglePartETagAsync(request.Body, cancellationToken);
+
+            await objectStore.PutObjectAsync(bucket, key, request.Body, cancellationToken);
+            
+            var metadata = new ObjectMetadata(
+                bucket,
+                key,
+                $"\"{eTag}\"",
+                request.ContentLength ?? 0,
+                contentType,
+                request.Headers.ContentEncoding,
+                request.Headers.ContentDisposition,
+                null,
+                request.Headers.CacheControl,
+                new Dictionary<string, string>(),
+                "STANDARD",
+                null,
+                true,
+                false,
+                DateTime.UtcNow);
+
+            await metadataStore.PutObjectMetadataAsync(metadata, cancellationToken);
+            await metadataStore.UpdateBucketStatisticsAsync(bucket, 1, metadata.Size, cancellationToken);
+
+            return Results.Ok(new
+            {
+                ETag = $"\"{eTag}\"",
+                LastModified = DateTime.UtcNow.ToString("R")
             });
         }
-
-        var contentType = request.ContentType ?? "application/octet-stream";
-        var eTag = await eTagCalculator.CalculateSinglePartETagAsync(request.Body, cancellationToken);
-
-        await objectStore.PutObjectAsync(bucket, key, request.Body, cancellationToken);
-        
-        var metadata = new ObjectMetadata(
-            bucket,
-            key,
-            $"\"{eTag}\"",
-            request.ContentLength ?? 0,
-            contentType,
-            request.Headers.ContentEncoding,
-            request.Headers.ContentDisposition,
-            null,
-            request.Headers.CacheControl,
-            new Dictionary<string, string>(),
-            "STANDARD",
-            null,
-            true,
-            false,
-            DateTime.UtcNow);
-
-        await metadataStore.PutObjectMetadataAsync(metadata, cancellationToken);
-        await metadataStore.UpdateBucketStatisticsAsync(bucket, 1, metadata.Size, cancellationToken);
-
-        return Results.Ok(new
+        catch (Exception ex)
         {
-            ETag = $"\"{eTag}\"",
-            LastModified = DateTime.UtcNow.ToString("R")
-        });
+            return Results.Problem($"Failed to upload object '{key}' to bucket '{bucket}': {ex.Message}");
+        }
     }
 
     /// <summary>
@@ -120,34 +127,41 @@ public static class ObjectEndpoints
             return Results.BadRequest(new S3Error
             {
                 Code = "InvalidRequest",
-                Message = "Object key cannot be empty.",
+                Message = "Object key cannot be empty. Provide a valid object key.",
                 Resource = $"{bucket}/"
             });
         }
 
-        var metadata = await metadataStore.GetObjectMetadataAsync(bucket, key, cancellationToken);
-        if (metadata == null)
+        try
         {
-            return Results.NotFound(new S3Error
+            var metadata = await metadataStore.GetObjectMetadataAsync(bucket, key, cancellationToken);
+            if (metadata == null)
             {
-                Code = "NoSuchKey",
-                Message = "The specified key does not exist.",
-                Resource = $"{bucket}/{key}"
-            });
-        }
+                return Results.NotFound(new S3Error
+                {
+                    Code = "NoSuchKey",
+                    Message = $"Object '{key}' does not exist in bucket '{bucket}'. Verify the object key and try again.",
+                    Resource = $"{bucket}/{key}"
+                });
+            }
 
-        var stream = await objectStore.GetObjectAsync(bucket, key, cancellationToken);
-        if (stream == null)
+            var stream = await objectStore.GetObjectAsync(bucket, key, cancellationToken);
+            if (stream == null)
+            {
+                return Results.NotFound(new S3Error
+                {
+                    Code = "NoSuchKey",
+                    Message = $"Object data for '{key}' not found in bucket '{bucket}'.",
+                    Resource = $"{bucket}/{key}"
+                });
+            }
+
+            return Results.File(stream, metadata.ContentType, enableRangeProcessing: true);
+        }
+        catch (Exception ex)
         {
-            return Results.NotFound(new S3Error
-            {
-                Code = "NoSuchKey",
-                Message = "The specified key does not exist.",
-                Resource = $"{bucket}/{key}"
-            });
+            return Results.Problem($"Failed to download object '{key}' from bucket '{bucket}': {ex.Message}");
         }
-
-        return Results.File(stream, metadata.ContentType, enableRangeProcessing: true);
     }
 
     /// <summary>
@@ -164,23 +178,30 @@ public static class ObjectEndpoints
             return Results.BadRequest(new S3Error
             {
                 Code = "InvalidRequest",
-                Message = "Object key cannot be empty.",
+                Message = "Object key cannot be empty. Provide a valid object key.",
                 Resource = $"{bucket}/"
             });
         }
 
-        var metadata = await metadataStore.GetObjectMetadataAsync(bucket, key, cancellationToken);
-        if (metadata == null)
+        try
         {
-            return Results.NotFound(new S3Error
+            var metadata = await metadataStore.GetObjectMetadataAsync(bucket, key, cancellationToken);
+            if (metadata == null)
             {
-                Code = "NoSuchKey",
-                Message = "The specified key does not exist.",
-                Resource = $"{bucket}/{key}"
-            });
-        }
+                return Results.NotFound(new S3Error
+                {
+                    Code = "NoSuchKey",
+                    Message = $"Object '{key}' does not exist in bucket '{bucket}'. Verify the object key and try again.",
+                    Resource = $"{bucket}/{key}"
+                });
+            }
 
-        return Results.Ok();
+            return Results.Ok();
+        }
+        catch (Exception ex)
+        {
+            return Results.Problem($"Failed to get metadata for object '{key}' in bucket '{bucket}': {ex.Message}");
+        }
     }
 
     /// <summary>
@@ -198,27 +219,34 @@ public static class ObjectEndpoints
             return Results.BadRequest(new S3Error
             {
                 Code = "InvalidRequest",
-                Message = "Object key cannot be empty.",
+                Message = "Object key cannot be empty. Provide a valid object key.",
                 Resource = $"{bucket}/"
             });
         }
 
-        var metadata = await metadataStore.GetObjectMetadataAsync(bucket, key, cancellationToken);
-        if (metadata == null)
+        try
         {
-            return Results.NotFound(new S3Error
+            var metadata = await metadataStore.GetObjectMetadataAsync(bucket, key, cancellationToken);
+            if (metadata == null)
             {
-                Code = "NoSuchKey",
-                Message = "The specified key does not exist.",
-                Resource = $"{bucket}/{key}"
-            });
+                return Results.NotFound(new S3Error
+                {
+                    Code = "NoSuchKey",
+                    Message = $"Object '{key}' does not exist in bucket '{bucket}'. Verify the object key and try again.",
+                    Resource = $"{bucket}/{key}"
+                });
+            }
+
+            await objectStore.DeleteObjectAsync(bucket, key, cancellationToken);
+            await metadataStore.DeleteObjectMetadataAsync(bucket, key, cancellationToken);
+            await metadataStore.UpdateBucketStatisticsAsync(bucket, -1, -metadata.Size, cancellationToken);
+
+            return Results.NoContent();
         }
-
-        await objectStore.DeleteObjectAsync(bucket, key, cancellationToken);
-        await metadataStore.DeleteObjectMetadataAsync(bucket, key, cancellationToken);
-        await metadataStore.UpdateBucketStatisticsAsync(bucket, -1, -metadata.Size, cancellationToken);
-
-        return Results.NoContent();
+        catch (Exception ex)
+        {
+            return Results.Problem($"Failed to delete object '{key}' from bucket '{bucket}': {ex.Message}");
+        }
     }
 
     /// <summary>
@@ -234,42 +262,49 @@ public static class ObjectEndpoints
         var deleted = new List<object>();
         var errors = new List<object>();
 
-        // Parse XML body for DeleteMultipleObjects request
-        using var reader = new StreamReader(request.Body);
-        var body = await reader.ReadToEndAsync(cancellationToken);
-
-        // Simple parsing - in production, use proper XML parser
-        var keyMatches = System.Text.RegularExpressions.Regex.Matches(body, "<Key>([^<]+)</Key>");
-        var keys = keyMatches.Cast<System.Text.RegularExpressions.Match>().Select(m => m.Groups[1].Value).ToList();
-
-        foreach (var key in keys)
+        try
         {
-            try
+            // Parse XML body for DeleteMultipleObjects request
+            using var reader = new StreamReader(request.Body);
+            var body = await reader.ReadToEndAsync(cancellationToken);
+
+            // Simple parsing - in production, use proper XML parser
+            var keyMatches = System.Text.RegularExpressions.Regex.Matches(body, "<Key>([^<]+)</Key>");
+            var keys = keyMatches.Cast<System.Text.RegularExpressions.Match>().Select(m => m.Groups[1].Value).ToList();
+
+            foreach (var key in keys)
             {
-                var metadata = await metadataStore.GetObjectMetadataAsync(bucket, key, cancellationToken);
-                if (metadata != null)
+                try
                 {
-                    await objectStore.DeleteObjectAsync(bucket, key, cancellationToken);
-                    await metadataStore.DeleteObjectMetadataAsync(bucket, key, cancellationToken);
-                    await metadataStore.UpdateBucketStatisticsAsync(bucket, -1, -metadata.Size, cancellationToken);
-                    
-                    deleted.Add(new
+                    var metadata = await metadataStore.GetObjectMetadataAsync(bucket, key, cancellationToken);
+                    if (metadata != null)
+                    {
+                        await objectStore.DeleteObjectAsync(bucket, key, cancellationToken);
+                        await metadataStore.DeleteObjectMetadataAsync(bucket, key, cancellationToken);
+                        await metadataStore.UpdateBucketStatisticsAsync(bucket, -1, -metadata.Size, cancellationToken);
+                        
+                        deleted.Add(new
+                        {
+                            Key = key,
+                            VersionId = metadata.VersionId,
+                            DeleteMarker = metadata.IsDeleteMarker
+                        });
+                    }
+                }
+                catch (Exception ex)
+                {
+                    errors.Add(new
                     {
                         Key = key,
-                        VersionId = metadata.VersionId,
-                        DeleteMarker = metadata.IsDeleteMarker
+                        Code = "InternalError",
+                        Message = $"Failed to delete object '{key}': {ex.Message}"
                     });
                 }
             }
-            catch (Exception)
-            {
-                errors.Add(new
-                {
-                    Key = key,
-                    Code = "InternalError",
-                    Message = "Failed to delete object"
-                });
-            }
+        }
+        catch (Exception ex)
+        {
+            return Results.Problem($"Failed to process delete request for bucket '{bucket}': {ex.Message}");
         }
 
         return Results.Ok(new
@@ -284,50 +319,54 @@ public static class ObjectEndpoints
     /// </summary>
     private static async Task<IResult> ListObjectsV2Async(
         string bucket,
+        string? prefix,
+        string? continuationToken,
+        string? delimiter,
         IMetadataStore metadataStore,
-        CancellationToken cancellationToken,
-        [FromQuery] string? prefix = null,
-        [FromQuery] string? delimiter = null,
-        [FromQuery] string? continuationToken = null,
-        [FromQuery] int maxKeys = 1000,
-        [FromQuery] string encodingType = "url")
+        CancellationToken cancellationToken)
     {
-        var bucketExists = await metadataStore.BucketExistsAsync(bucket, cancellationToken);
-        if (!bucketExists)
+        try
         {
-            return Results.NotFound(new S3Error
+            var bucketExists = await metadataStore.BucketExistsAsync(bucket, cancellationToken);
+            if (!bucketExists)
             {
-                Code = "NoSuchBucket",
-                Message = "The specified bucket does not exist.",
-                Resource = bucket
-            });
+                return Results.NotFound(new S3Error
+                {
+                    Code = "NoSuchBucket",
+                    Message = $"Bucket '{bucket}' does not exist. Verify the bucket name and try again.",
+                    Resource = bucket
+                });
+            }
+
+            var (objects, commonPrefixes, nextToken) = await metadataStore.ListObjectsV2Async(
+                bucket, prefix, delimiter, continuationToken, cancellationToken: cancellationToken);
+
+            var response = new ListObjectsV2Response
+            {
+                Name = bucket,
+                Prefix = prefix,
+                Delimiter = delimiter,
+                MaxKeys = 1000,
+                IsTruncated = nextToken != null,
+                NextContinuationToken = nextToken,
+                Contents = objects.Select(o => new
+                {
+                    Key = o.Key,
+                    LastModified = o.LastModified.ToString("o"),
+                    ETag = o.ETag,
+                    Size = o.Size,
+                    StorageClass = o.StorageClass
+                }).Cast<object>().ToList(),
+                CommonPrefixes = commonPrefixes.Cast<object>().ToList(),
+                KeyCount = objects.Count
+            };
+
+            return Results.Ok(response);
         }
-
-        var (objects, commonPrefixes, nextToken) = await metadataStore.ListObjectsV2Async(
-            bucket, prefix, delimiter, continuationToken, maxKeys, cancellationToken);
-
-        var response = new ListObjectsV2Response
+        catch (Exception ex)
         {
-            Name = bucket,
-            Prefix = prefix,
-            Delimiter = delimiter,
-            MaxKeys = maxKeys,
-            IsTruncated = nextToken != null,
-            NextContinuationToken = nextToken,
-            Contents = objects.Select(o => new
-            {
-                Key = o.Key,
-                LastModified = o.LastModified.ToString("o"),
-                ETag = o.ETag,
-                Size = o.Size,
-                StorageClass = o.StorageClass
-            }).Cast<object>().ToList(),
-            CommonPrefixes = commonPrefixes.Cast<object>().ToList(),
-            KeyCount = objects.Count,
-            EncodingType = encodingType
-        };
-
-        return Results.Ok(response);
+            return Results.Problem($"Failed to list objects in bucket '{bucket}': {ex.Message}");
+        }
     }
 
     /// <summary>
