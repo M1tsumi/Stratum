@@ -36,14 +36,41 @@ public static class ServiceCollectionExtensions
         // Add health checks
         services.AddHealthChecks();
 
-        // Add CORS (configured for development)
+        // Add CORS (configured from settings)
+        var allowedOrigins = configuration["Cors:AllowedOrigins"] ?? "*";
+        var allowedMethods = configuration["Cors:AllowedMethods"] ?? "*";
+        var allowedHeaders = configuration["Cors:AllowedHeaders"] ?? "*";
+
         services.AddCors(options =>
         {
             options.AddDefaultPolicy(policy =>
             {
-                policy.AllowAnyOrigin()
-                    .AllowAnyMethod()
-                    .AllowAnyHeader();
+                if (allowedOrigins == "*")
+                {
+                    policy.AllowAnyOrigin();
+                }
+                else
+                {
+                    policy.WithOrigins(allowedOrigins.Split(','));
+                }
+
+                if (allowedMethods == "*")
+                {
+                    policy.AllowAnyMethod();
+                }
+                else
+                {
+                    policy.WithMethods(allowedMethods.Split(','));
+                }
+
+                if (allowedHeaders == "*")
+                {
+                    policy.AllowAnyHeader();
+                }
+                else
+                {
+                    policy.WithHeaders(allowedHeaders.Split(','));
+                }
             });
         });
 
