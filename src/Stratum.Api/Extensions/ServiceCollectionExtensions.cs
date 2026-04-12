@@ -2,6 +2,7 @@ namespace Stratum.Api.Extensions;
 
 using MediatR;
 using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.ResponseCompression;
 using Microsoft.AspNetCore.Server.Kestrel.Core;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -35,6 +36,34 @@ public static class ServiceCollectionExtensions
     {
         // Add health checks
         services.AddHealthChecks();
+
+        // Add response compression
+        services.AddResponseCompression(options =>
+        {
+            options.EnableForHttps = true;
+            options.Providers.Add<BrotliCompressionProvider>();
+            options.Providers.Add<GzipCompressionProvider>();
+            options.MimeTypes = new[]
+            {
+                "application/json",
+                "application/xml",
+                "text/plain",
+                "text/css",
+                "text/javascript",
+                "text/html",
+                "application/octet-stream"
+            };
+        });
+
+        services.Configure<BrotliCompressionProviderOptions>(options =>
+        {
+            options.Level = System.IO.Compression.CompressionLevel.Optimal;
+        });
+
+        services.Configure<GzipCompressionProviderOptions>(options =>
+        {
+            options.Level = System.IO.Compression.CompressionLevel.Optimal;
+        });
 
         // Add CORS (configured from settings)
         var allowedOrigins = configuration["Cors:AllowedOrigins"] ?? "*";
@@ -141,6 +170,9 @@ public static class ApplicationExtensions
 
         // Use request size validation middleware
         app.UseRequestSizeValidation();
+
+        // Use response compression
+        app.UseResponseCompression();
 
         // Use performance timing middleware
         app.UsePerformanceTiming();

@@ -53,6 +53,21 @@ export Authentication__EnableAnonymousAccess="false"
 |--------|------|---------|-------------|
 | `Authentication:EnableAnonymousAccess` | bool | `false` | Allow anonymous access (bypass authentication) |
 
+### CORS
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `Cors:AllowedOrigins` | string | `*` | Comma-separated list of allowed origins (use `*` for all) |
+| `Cors:AllowedMethods` | string | `*` | Comma-separated list of allowed HTTP methods (use `*` for all) |
+| `Cors:AllowedHeaders` | string | `*` | Comma-separated list of allowed headers (use `*` for all) |
+
+### Response Compression
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `ResponseCompression:EnableForHttps` | bool | `true` | Enable compression for HTTPS responses |
+| `ResponseCompression:Providers` | array | `["Brotli", "Gzip"]` | Compression providers to use |
+
 ### Logging
 
 | Option | Type | Default | Description |
