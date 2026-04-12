@@ -54,19 +54,18 @@ Stratum/
 
 ## Configuration
 
-Edit `appsettings.json`:
+Edit `appsettings.json` or use environment variables:
 
-```json
-{
-  "Server": {
-    "ListenUrl": "http://0.0.0.0:9000",
-    "EnableHttp3": true
-  },
-  "Storage": {
-    "DataDirectory": "./data"
-  }
-}
+```bash
+# Using config file
+cp appsettings.example.json appsettings.json
+
+# Using environment variables
+export Server__ListenUrl=http://0.0.0.0:9000
+export Storage__DataDirectory=./data
 ```
+
+See [docs/CONFIGURATION.md](docs/CONFIGURATION.md) for full configuration options.
 
 ## API Endpoints
 

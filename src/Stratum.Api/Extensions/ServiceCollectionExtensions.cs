@@ -112,6 +112,9 @@ public static class ApplicationExtensions
         // Use request ID middleware for tracing
         app.UseRequestId();
 
+        // Use request size validation middleware
+        app.UseRequestSizeValidation();
+
         // Use performance timing middleware
         app.UsePerformanceTiming();
 
