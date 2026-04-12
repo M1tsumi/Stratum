@@ -103,6 +103,9 @@ public static class ApplicationExtensions
         // Use request ID middleware for tracing
         app.UseRequestId();
 
+        // Use request logging middleware
+        app.UseRequestLogging();
+
         // Use HTTPS redirection in production
         if (app is WebApplication webApp && webApp.Environment.IsProduction())
         {
