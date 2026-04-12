@@ -1,0 +1,76 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 300">
+  <defs>
+    <!-- Professional gradients for earth layers -->
+    <linearGradient id="layer1" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" style="stop-color:#667eea;stop-opacity:0.9" />
+      <stop offset="100%" style="stop-color:#764ba2;stop-opacity:0.9" />
+    </linearGradient>
+    <linearGradient id="layer2" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" style="stop-color:#f093fb;stop-opacity:0.9" />
+      <stop offset="100%" style="stop-color:#f5576c;stop-opacity:0.9" />
+    </linearGradient>
+    <linearGradient id="layer3" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" style="stop-color:#4facfe;stop-opacity:0.9" />
+      <stop offset="100%" style="stop-color:#00f2fe;stop-opacity:0.9" />
+    </linearGradient>
+    <linearGradient id="layer4" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" style="stop-color:#43e97b;stop-opacity:0.9" />
+      <stop offset="100%" style="stop-color:#38f9d7;stop-opacity:0.9" />
+    </linearGradient>
+    
+    <!-- Text gradient -->
+    <linearGradient id="textGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" style="stop-color:#667eea;stop-opacity:1" />
+      <stop offset="50%" style="stop-color:#764ba2;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#667eea;stop-opacity:1" />
+    </linearGradient>
+    
+    <!-- Subtle shadow -->
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="4" stdDeviation="8" flood-color="#000" flood-opacity="0.1" />
+    </filter>
+  </defs>
+  
+  <!-- Clean background -->
+  <rect width="800" height="300" fill="#ffffff" />
+  
+  <!-- Earth layers as horizontal curved shapes behind text -->
+  <g transform="translate(400, 150)" filter="url(#shadow)">
+    <!-- Layer 4 - Infrastructure (largest, back) -->
+    <path d="M -350 80 Q 0 140 350 80 L 350 120 Q 0 180 -350 120 Z" fill="url(#layer4)" opacity="0.7" />
+    
+    <!-- Layer 3 - Domain -->
+    <path d="M -320 60 Q 0 110 320 60 L 320 95 Q 0 145 -320 95 Z" fill="url(#layer3)" opacity="0.8" />
+    
+    <!-- Layer 2 - Application -->
+    <path d="M -290 40 Q 0 80 290 40 L 290 70 Q 0 110 -290 70 Z" fill="url(#layer2)" opacity="0.85" />
+    
+    <!-- Layer 1 - API (smallest, front) -->
+    <path d="M -260 20 Q 0 50 260 20 L 260 45 Q 0 75 -260 45 Z" fill="url(#layer1)" opacity="0.9" />
+  </g>
+  
+  <!-- STRATUM text with professional font -->
+  <text x="400" y="145" text-anchor="middle" fill="url(#textGrad)" font-family="Inter, system-ui, -apple-system, sans-serif" font-size="64" font-weight="700" letter-spacing="8">
+    STRATUM
+  </text>
+  
+  <!-- Subtitle -->
+  <text x="400" y="175" text-anchor="middle" fill="#666" font-family="Inter, system-ui, -apple-system, sans-serif" font-size="16" font-weight="400" letter-spacing="3">
+    S3-Compatible Object Storage
+  </text>
+  
+  <!-- Layer indicators on the right side -->
+  <g transform="translate(620, 100)">
+    <rect x="0" y="0" width="12" height="12" rx="2" fill="url(#layer1)" />
+    <text x="20" y="10" font-family="Inter, system-ui, -apple-system, sans-serif" font-size="11" fill="#666">API</text>
+    
+    <rect x="0" y="20" width="12" height="12" rx="2" fill="url(#layer2)" />
+    <text x="20" y="30" font-family="Inter, system-ui, -apple-system, sans-serif" font-size="11" fill="#666">Application</text>
+    
+    <rect x="0" y="40" width="12" height="12" rx="2" fill="url(#layer3)" />
+    <text x="20" y="50" font-family="Inter, system-ui, -apple-system, sans-serif" font-size="11" fill="#666">Domain</text>
+    
+    <rect x="0" y="60" width="12" height="12" rx="2" fill="url(#layer4)" />
+    <text x="20" y="70" font-family="Inter, system-ui, -apple-system, sans-serif" font-size="11" fill="#666">Infrastructure</text>
+  </g>
+</svg>
