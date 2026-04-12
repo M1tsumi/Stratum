@@ -135,7 +135,7 @@ try
     });
 
     // Configure middleware
-    app.UseStratumApi();
+    app.UseStratumApi(app.Configuration);
 
     // Map endpoints
     app.MapStratumEndpoints();

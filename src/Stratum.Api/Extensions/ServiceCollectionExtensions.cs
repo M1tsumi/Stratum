@@ -15,6 +15,7 @@ using Stratum.Api.Endpoints;
 using Stratum.Api.HealthChecks;
 using Stratum.Api.Metrics;
 using Stratum.Api.Middleware;
+using Stratum.Api.Validation;
 using Stratum.Application.Interfaces;
 using Stratum.Domain.Interfaces;
 using Stratum.Domain.Services;
@@ -57,7 +58,8 @@ public static class ServiceCollectionExtensions
                 {
                     return Microsoft.Extensions.Diagnostics.HealthChecks.HealthCheckResult.Unhealthy($"Database check failed: {ex.Message}");
                 }
-            });
+            })
+            .AddCheck<CacheHealthCheck>("Cache");
 
         // Add response compression
         services.AddResponseCompression(options =>
@@ -192,9 +194,19 @@ public static class ApplicationExtensions
     /// Configures the Stratum API middleware pipeline.
     /// </summary>
     /// <param name="app">The web application.</param>
+    /// <param name="configuration">The configuration instance.</param>
     /// <returns>The web application for chaining.</returns>
-    public static IApplicationBuilder UseStratumApi(this IApplicationBuilder app)
+    public static IApplicationBuilder UseStratumApi(this IApplicationBuilder app, IConfiguration configuration)
     {
+        // Validate configuration at startup
+        var validator = new ConfigurationValidator(configuration);
+        var errors = validator.Validate();
+        if (errors.Count > 0)
+        {
+            throw new InvalidOperationException(
+                $"Configuration validation failed:{Environment.NewLine}{string.Join(Environment.NewLine, errors.Select(e => $"  - {e}"))}");
+        }
+
         // Use developer error middleware for detailed error information
         app.UseDeveloperError();
 
