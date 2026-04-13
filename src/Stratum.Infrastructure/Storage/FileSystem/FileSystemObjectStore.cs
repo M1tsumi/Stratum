@@ -59,12 +59,13 @@ public sealed class FileSystemObjectStore : IObjectStore
                     tempFilePath,
                     FileMode.Create,
                     FileAccess.Write,
-                    FileShare.None,
+                    FileShare.Read,
                     bufferSize: OptimalBufferSize,
                     useAsync: true);
 
                 await content.CopyToAsync(fileStream, cancellationToken);
                 await fileStream.FlushAsync(cancellationToken);
+                fileStream.Dispose();
 
                 // Atomic rename
                 File.Move(tempFilePath, filePath);
@@ -117,7 +118,7 @@ public sealed class FileSystemObjectStore : IObjectStore
         }
     }
 
-    public Task DeleteObjectAsync(
+    public async Task DeleteObjectAsync(
         string bucketName,
         string key,
         CancellationToken cancellationToken = default)
@@ -126,13 +127,33 @@ public sealed class FileSystemObjectStore : IObjectStore
 
         if (File.Exists(filePath))
         {
-            File.Delete(filePath);
+            // Retry deletion with delay to handle file locks
+            var maxRetries = 3;
+            var retryDelay = TimeSpan.FromMilliseconds(100);
+
+            for (int i = 0; i < maxRetries; i++)
+            {
+                try
+                {
+                    File.Delete(filePath);
+                    break;
+                }
+                catch (IOException)
+                {
+                    if (i < maxRetries - 1)
+                    {
+                        await Task.Delay(retryDelay, cancellationToken);
+                    }
+                    else
+                    {
+                        throw;
+                    }
+                }
+            }
         }
 
         // Clean up empty directories
         CleanEmptyDirectories(bucketName, key);
-
-        return Task.CompletedTask;
     }
 
     public Task<bool> ObjectExistsAsync(

@@ -319,7 +319,7 @@ public sealed class SQLiteMetadataStore : IMetadataStore, IDisposable
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
         if (await reader.ReadAsync(cancellationToken))
         {
-            var userMetadataJson = reader.IsDBNull(10) ? null : reader.GetString(10);
+            var userMetadataJson = reader.IsDBNull(9) ? null : reader.GetString(9);
             var userMetadata = string.IsNullOrEmpty(userMetadataJson)
                 ? new Dictionary<string, string>()
                 : JsonSerializer.Deserialize<Dictionary<string, string>>(userMetadataJson) ?? new Dictionary<string, string>();
@@ -335,11 +335,11 @@ public sealed class SQLiteMetadataStore : IMetadataStore, IDisposable
                 reader.IsDBNull(7) ? null : reader.GetString(7),
                 reader.IsDBNull(8) ? null : reader.GetString(8),
                 userMetadata,
-                reader.GetString(9),
-                reader.IsDBNull(10) ? null : reader.GetString(10),
-                reader.GetBoolean(11),
+                reader.GetString(10),
+                reader.IsDBNull(11) ? null : reader.GetString(11),
                 reader.GetBoolean(12),
-                DateTime.Parse(reader.GetString(13)));
+                reader.GetBoolean(13),
+                DateTime.Parse(reader.GetString(14)));
         }
 
         return null;

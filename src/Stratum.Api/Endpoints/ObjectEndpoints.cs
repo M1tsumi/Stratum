@@ -82,7 +82,7 @@ public static class ObjectEndpoints
             var contentType = request.ContentType ?? "application/octet-stream";
 
             // Buffer the request body to allow multiple reads (for ETag calculation and upload)
-            using var bodyBuffer = new MemoryStream();
+            var bodyBuffer = new MemoryStream();
             await request.Body.CopyToAsync(bodyBuffer, cancellationToken);
             bodyBuffer.Position = 0; // Reset position to beginning
 
@@ -117,14 +117,15 @@ public static class ObjectEndpoints
                 LastModified = DateTime.UtcNow.ToString("R")
             });
         }
-        catch (IOException)
+        catch (IOException ex)
         {
-            return Results.Problem(detail: $"I/O error uploading object '{key}' to bucket '{bucket}'. Check disk space and permissions.",
+            return Results.Problem(detail: $"I/O error uploading object '{key}' to bucket '{bucket}'. Check disk space and permissions. Error: {ex.Message}",
                 statusCode: 500, title: "Storage Error", extensions: new Dictionary<string, object?>
                 {
                     { "RequestId", requestId },
                     { "Timestamp", DateTime.UtcNow.ToString("o") },
-                    { "ErrorType", "IOException" }
+                    { "ErrorType", "IOException" },
+                    { "ErrorMessage", ex.Message }
                 });
         }
         catch (OperationCanceledException)
@@ -138,12 +139,14 @@ public static class ObjectEndpoints
         }
         catch (Exception ex)
         {
-            return Results.Problem(detail: $"Failed to upload object '{key}' to bucket '{bucket}': {ex.Message}. Request ID: {requestId}",
-                statusCode: 500, title: "Upload Failed", extensions: new Dictionary<string, object?>
+            return Results.Problem(detail: $"Error uploading object '{key}' to bucket '{bucket}'. Error: {ex.Message}",
+                statusCode: 500, title: "Upload Error", extensions: new Dictionary<string, object?>
                 {
                     { "RequestId", requestId },
                     { "Timestamp", DateTime.UtcNow.ToString("o") },
-                    { "ErrorType", ex.GetType().Name }
+                    { "ErrorType", ex.GetType().Name },
+                    { "ErrorMessage", ex.Message },
+                    { "StackTrace", ex.StackTrace }
                 });
         }
     }
