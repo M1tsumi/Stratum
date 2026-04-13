@@ -220,13 +220,13 @@ public static class ApplicationExtensions
         app.UseRequestId();
 
         // Use request validation middleware
-        // app.UseRequestValidation();
+        app.UseRequestValidation();
 
         // Use request size validation middleware
-        // app.UseRequestSizeValidation();
+        app.UseRequestSizeValidation();
 
         // Use rate limiting middleware
-        // app.UseRateLimit();
+        app.UseRateLimit();
 
         // Use request timeout middleware
         // app.UseRequestTimeout();
@@ -241,7 +241,7 @@ public static class ApplicationExtensions
         // app.UsePerformanceMetrics();
 
         // Use request logging middleware
-        // app.UseRequestLogging();
+        app.UseRequestLogging();
 
         // Use HTTPS redirection in production
         if (app is WebApplication webApp && webApp.Environment.IsProduction())
@@ -302,9 +302,8 @@ public static class EndpointRouteBuilderExtensions
 
         // Map S3 API endpoints
         app.MapBucketEndpoints();
+        // app.MapMultipartEndpoints(); // Temporarily disabled due to routing conflicts
         app.MapObjectEndpoints();
-        // Map multipart endpoints (temporarily disabled due to routing conflicts)
-        // app.MapMultipartEndpoints();
 
         // Map metrics endpoint
         app.MapGet("/metrics", (PerformanceMetrics metrics) =>

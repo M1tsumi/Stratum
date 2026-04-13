@@ -15,20 +15,56 @@ public static class MultipartEndpoints
     /// </summary>
     public static void MapMultipartEndpoints(this IEndpointRouteBuilder app)
     {
-        // CreateMultipartUpload - use specific path to avoid conflict
-        app.MapPost("/{bucket}/{*key}/uploads", CreateMultipartUploadAsync)
+        // CreateMultipartUpload - distinguished by ?uploads query parameter
+        app.MapPost("/{bucket}/{*key}", CreateMultipartUploadAsync)
+            .AddEndpointFilter(async (context, next) =>
+            {
+                var query = context.HttpContext.Request.Query;
+                if (!query.ContainsKey("uploads"))
+                {
+                    return Results.NotFound();
+                }
+                return await next(context);
+            })
             .WithName("CreateMultipartUpload");
 
-        // UploadPart - use specific path to avoid conflict
-        app.MapPut("/{bucket}/{*key}/upload", UploadPartAsync)
+        // UploadPart - distinguished by ?partNumber and ?uploadId query parameters
+        app.MapPut("/{bucket}/{*key}", UploadPartAsync)
+            .AddEndpointFilter(async (context, next) =>
+            {
+                var query = context.HttpContext.Request.Query;
+                if (!query.ContainsKey("partNumber") || !query.ContainsKey("uploadId"))
+                {
+                    return Results.NotFound();
+                }
+                return await next(context);
+            })
             .WithName("UploadPart");
 
-        // CompleteMultipartUpload - use specific path to avoid conflict
-        app.MapPost("/{bucket}/{*key}/complete", CompleteMultipartUploadAsync)
+        // CompleteMultipartUpload - distinguished by ?uploadId query parameter
+        app.MapPost("/{bucket}/{*key}", CompleteMultipartUploadAsync)
+            .AddEndpointFilter(async (context, next) =>
+            {
+                var query = context.HttpContext.Request.Query;
+                if (!query.ContainsKey("uploadId"))
+                {
+                    return Results.NotFound();
+                }
+                return await next(context);
+            })
             .WithName("CompleteMultipartUpload");
 
-        // AbortMultipartUpload - use specific path to avoid conflict
-        app.MapDelete("/{bucket}/{*key}/abort", AbortMultipartUploadAsync)
+        // AbortMultipartUpload - distinguished by ?uploadId query parameter
+        app.MapDelete("/{bucket}/{*key}", AbortMultipartUploadAsync)
+            .AddEndpointFilter(async (context, next) =>
+            {
+                var query = context.HttpContext.Request.Query;
+                if (!query.ContainsKey("uploadId"))
+                {
+                    return Results.NotFound();
+                }
+                return await next(context);
+            })
             .WithName("AbortMultipartUpload");
 
         // ListMultipartUploads
