@@ -424,9 +424,12 @@ public static class ObjectEndpoints
         string? prefix,
         string? continuationToken,
         string? delimiter,
+        HttpRequest request,
         IMetadataStore metadataStore,
         CancellationToken cancellationToken)
     {
+        var requestId = request.Headers["X-Request-Id"].FirstOrDefault() ?? Guid.NewGuid().ToString();
+
         try
         {
             var bucketExists = await metadataStore.BucketExistsAsync(bucket, cancellationToken);
@@ -436,7 +439,8 @@ public static class ObjectEndpoints
                 {
                     Code = "NoSuchBucket",
                     Message = $"Bucket '{bucket}' does not exist. Verify the bucket name and try again.",
-                    Resource = bucket
+                    Resource = bucket,
+                    RequestId = requestId
                 });
             }
 

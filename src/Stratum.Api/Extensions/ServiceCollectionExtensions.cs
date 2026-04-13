@@ -217,7 +217,7 @@ public static class ApplicationExtensions
         app.UseDeveloperError();
 
         // Use request ID middleware for tracing
-        // app.UseRequestId();
+        app.UseRequestId();
 
         // Use request validation middleware
         // app.UseRequestValidation();

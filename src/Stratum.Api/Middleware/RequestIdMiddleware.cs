@@ -19,6 +19,9 @@ public class RequestIdMiddleware
         // Get or create request ID
         var requestId = context.TraceIdentifier;
         
+        // Add to request headers so endpoints can read it
+        context.Request.Headers.Append("X-Request-Id", requestId);
+        
         // Add to response headers for debugging
         context.Response.OnStarting(() =>
         {
