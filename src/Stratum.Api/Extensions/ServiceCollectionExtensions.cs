@@ -217,31 +217,31 @@ public static class ApplicationExtensions
         app.UseDeveloperError();
 
         // Use request ID middleware for tracing
-        app.UseRequestId();
+        // app.UseRequestId();
 
         // Use request validation middleware
-        app.UseRequestValidation();
+        // app.UseRequestValidation();
 
         // Use request size validation middleware
-        app.UseRequestSizeValidation();
+        // app.UseRequestSizeValidation();
 
         // Use rate limiting middleware
-        app.UseRateLimit();
+        // app.UseRateLimit();
 
         // Use request timeout middleware
-        app.UseRequestTimeout();
+        // app.UseRequestTimeout();
 
         // Use response compression
         app.UseResponseCompression();
 
         // Use performance timing middleware
-        app.UsePerformanceTiming();
+        // app.UsePerformanceTiming();
 
         // Use performance metrics collection
-        app.UsePerformanceMetrics();
+        // app.UsePerformanceMetrics();
 
         // Use request logging middleware
-        app.UseRequestLogging();
+        // app.UseRequestLogging();
 
         // Use HTTPS redirection in production
         if (app is WebApplication webApp && webApp.Environment.IsProduction())
@@ -303,7 +303,8 @@ public static class EndpointRouteBuilderExtensions
         // Map S3 API endpoints
         app.MapBucketEndpoints();
         app.MapObjectEndpoints();
-        app.MapMultipartEndpoints();
+        // Map multipart endpoints (temporarily disabled due to routing conflicts)
+        // app.MapMultipartEndpoints();
 
         // Map metrics endpoint
         app.MapGet("/metrics", (PerformanceMetrics metrics) =>
@@ -317,8 +318,8 @@ public static class EndpointRouteBuilderExtensions
             });
         }).WithName("GetMetrics");
 
-        // Map root endpoint
-        app.MapGet("/", () => Results.Ok(new
+        // Map API info endpoint
+        app.MapGet("/api", () => Results.Ok(new
         {
             Service = "Stratum S3-Compatible Object Storage",
             Version = "0.1.0-alpha.1",

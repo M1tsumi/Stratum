@@ -80,15 +80,22 @@ public static class ObjectEndpoints
             }
 
             var contentType = request.ContentType ?? "application/octet-stream";
-            var eTag = await eTagCalculator.CalculateSinglePartETagAsync(request.Body, cancellationToken);
 
-            await objectStore.PutObjectAsync(bucket, key, request.Body, cancellationToken);
+            // Buffer the request body to allow multiple reads (for ETag calculation and upload)
+            using var bodyBuffer = new MemoryStream();
+            await request.Body.CopyToAsync(bodyBuffer, cancellationToken);
+            bodyBuffer.Position = 0; // Reset position to beginning
+
+            var eTag = await eTagCalculator.CalculateSinglePartETagAsync(bodyBuffer, cancellationToken);
+            bodyBuffer.Position = 0; // Reset position again for upload
+
+            await objectStore.PutObjectAsync(bucket, key, bodyBuffer, cancellationToken);
 
             var metadata = new ObjectMetadata(
                 bucket,
                 key,
                 $"\"{eTag}\"",
-                request.ContentLength ?? 0,
+                request.ContentLength ?? bodyBuffer.Length,
                 contentType,
                 request.Headers.ContentEncoding,
                 request.Headers.ContentDisposition,

@@ -15,20 +15,20 @@ public static class MultipartEndpoints
     /// </summary>
     public static void MapMultipartEndpoints(this IEndpointRouteBuilder app)
     {
-        // CreateMultipartUpload - distinguished by ?uploads query parameter
-        app.MapPost("/{bucket}/{*key}", CreateMultipartUploadAsync)
+        // CreateMultipartUpload - use specific path to avoid conflict
+        app.MapPost("/{bucket}/{*key}/uploads", CreateMultipartUploadAsync)
             .WithName("CreateMultipartUpload");
 
-        // UploadPart - distinguished by ?partNumber and ?uploadId query parameters
-        app.MapPut("/{bucket}/{*key}", UploadPartAsync)
+        // UploadPart - use specific path to avoid conflict
+        app.MapPut("/{bucket}/{*key}/upload", UploadPartAsync)
             .WithName("UploadPart");
 
-        // CompleteMultipartUpload - distinguished by ?uploadId query parameter
-        app.MapPost("/{bucket}/{*key}", CompleteMultipartUploadAsync)
+        // CompleteMultipartUpload - use specific path to avoid conflict
+        app.MapPost("/{bucket}/{*key}/complete", CompleteMultipartUploadAsync)
             .WithName("CompleteMultipartUpload");
 
-        // AbortMultipartUpload - distinguished by ?uploadId query parameter
-        app.MapDelete("/{bucket}/{*key}", AbortMultipartUploadAsync)
+        // AbortMultipartUpload - use specific path to avoid conflict
+        app.MapDelete("/{bucket}/{*key}/abort", AbortMultipartUploadAsync)
             .WithName("AbortMultipartUpload");
 
         // ListMultipartUploads
@@ -47,9 +47,14 @@ public static class MultipartEndpoints
         string bucket,
         string? key,
         IMetadataStore metadataStore,
-        CancellationToken cancellationToken,
-        [FromQuery] bool uploads = false)
+        CancellationToken cancellationToken)
     {
+        // Remove /uploads suffix from key
+        if (!string.IsNullOrEmpty(key) && key.EndsWith("/uploads", StringComparison.OrdinalIgnoreCase))
+        {
+            key = key[..^8];
+        }
+
         if (string.IsNullOrEmpty(key))
         {
             return Results.BadRequest(new S3Error
@@ -115,6 +120,12 @@ public static class MultipartEndpoints
         ETagCalculator eTagCalculator,
         CancellationToken cancellationToken)
     {
+        // Remove /upload suffix from key
+        if (!string.IsNullOrEmpty(key) && key.EndsWith("/upload", StringComparison.OrdinalIgnoreCase))
+        {
+            key = key[..^7];
+        }
+
         if (string.IsNullOrEmpty(key) || string.IsNullOrEmpty(uploadId))
         {
             return Results.BadRequest(new S3Error
@@ -170,6 +181,12 @@ public static class MultipartEndpoints
         ETagCalculator eTagCalculator,
         CancellationToken cancellationToken)
     {
+        // Remove /complete suffix from key
+        if (!string.IsNullOrEmpty(key) && key.EndsWith("/complete", StringComparison.OrdinalIgnoreCase))
+        {
+            key = key[..^8];
+        }
+
         if (string.IsNullOrEmpty(key) || string.IsNullOrEmpty(uploadId))
         {
             return Results.BadRequest(new S3Error
@@ -237,6 +254,12 @@ public static class MultipartEndpoints
         IMetadataStore metadataStore,
         CancellationToken cancellationToken)
     {
+        // Remove /abort suffix from key
+        if (!string.IsNullOrEmpty(key) && key.EndsWith("/abort", StringComparison.OrdinalIgnoreCase))
+        {
+            key = key[..^5];
+        }
+
         if (string.IsNullOrEmpty(uploadId))
         {
             return Results.BadRequest(new S3Error
