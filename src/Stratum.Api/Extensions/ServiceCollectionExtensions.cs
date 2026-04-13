@@ -1,0 +1,331 @@
+namespace Stratum.Api.Extensions;
+
+using MediatR;
+using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.ResponseCompression;
+using Microsoft.AspNetCore.Server.Kestrel.Core;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
+using Microsoft.OpenApi.Models;
+using OpenTelemetry;
+using OpenTelemetry.Resources;
+using OpenTelemetry.Trace;
+using Serilog;
+using Stratum.Api.Endpoints;
+using Stratum.Api.HealthChecks;
+using Stratum.Api.Metrics;
+using Stratum.Api.Middleware;
+using Stratum.Api.Validation;
+using Stratum.Application.Interfaces;
+using Stratum.Domain.Interfaces;
+using Stratum.Domain.Services;
+using Stratum.Infrastructure.Authentication;
+using Stratum.Infrastructure.Metadata.SQLite;
+using Stratum.Infrastructure.Storage.FileSystem;
+
+/// <summary>
+/// Extension methods for configuring the Stratum API services.
+/// </summary>
+public static class ServiceCollectionExtensions
+{
+    /// <summary>
+    /// Adds and configures Stratum API services to the dependency injection container.
+    /// </summary>
+    /// <param name="services">The service collection.</param>
+    /// <param name="configuration">The configuration instance.</param>
+    /// <returns>The service collection for chaining.</returns>
+    public static IServiceCollection AddStratumApi(this IServiceCollection services, IConfiguration configuration)
+    {
+        // Add health checks with detailed response
+        services.AddHealthChecks()
+            .AddCheck("Storage", () =>
+            {
+                var dataDir = configuration["Storage:DataDirectory"] ?? "./data";
+                return Directory.Exists(dataDir)
+                    ? Microsoft.Extensions.Diagnostics.HealthChecks.HealthCheckResult.Healthy($"Storage directory accessible: {dataDir}")
+                    : Microsoft.Extensions.Diagnostics.HealthChecks.HealthCheckResult.Unhealthy($"Storage directory not accessible: {dataDir}");
+            })
+            .AddCheck("Database", () =>
+            {
+                try
+                {
+                    var dbPath = Path.Combine(configuration["Storage:DataDirectory"] ?? "./data", "stratum.db");
+                    return File.Exists(dbPath)
+                        ? Microsoft.Extensions.Diagnostics.HealthChecks.HealthCheckResult.Healthy("Database file accessible")
+                        : Microsoft.Extensions.Diagnostics.HealthChecks.HealthCheckResult.Degraded("Database file does not exist (will be created on first use)");
+                }
+                catch (Exception ex)
+                {
+                    return Microsoft.Extensions.Diagnostics.HealthChecks.HealthCheckResult.Unhealthy($"Database check failed: {ex.Message}");
+                }
+            })
+            .AddCheck<CacheHealthCheck>("Cache");
+
+        // Add response compression
+        services.AddResponseCompression(options =>
+        {
+            options.EnableForHttps = true;
+            options.Providers.Add<BrotliCompressionProvider>();
+            options.Providers.Add<GzipCompressionProvider>();
+            options.MimeTypes = new[]
+            {
+                "application/json",
+                "application/xml",
+                "text/plain",
+                "text/css",
+                "text/javascript",
+                "text/html",
+                "application/octet-stream"
+            };
+        });
+
+        services.Configure<BrotliCompressionProviderOptions>(options =>
+        {
+            options.Level = System.IO.Compression.CompressionLevel.Optimal;
+        });
+
+        services.Configure<GzipCompressionProviderOptions>(options =>
+        {
+            options.Level = System.IO.Compression.CompressionLevel.Optimal;
+        });
+
+        // Add CORS (configured from settings)
+        var allowedOrigins = configuration["Cors:AllowedOrigins"] ?? "*";
+        var allowedMethods = configuration["Cors:AllowedMethods"] ?? "*";
+        var allowedHeaders = configuration["Cors:AllowedHeaders"] ?? "*";
+
+        services.AddCors(options =>
+        {
+            options.AddDefaultPolicy(policy =>
+            {
+                if (allowedOrigins == "*")
+                {
+                    policy.AllowAnyOrigin();
+                }
+                else
+                {
+                    policy.WithOrigins(allowedOrigins.Split(','));
+                }
+
+                if (allowedMethods == "*")
+                {
+                    policy.AllowAnyMethod();
+                }
+                else
+                {
+                    policy.WithMethods(allowedMethods.Split(','));
+                }
+
+                if (allowedHeaders == "*")
+                {
+                    policy.AllowAnyHeader();
+                }
+                else
+                {
+                    policy.WithHeaders(allowedHeaders.Split(','));
+                }
+            });
+        });
+
+        // Add controllers (if needed for complex responses)
+        services.AddControllers();
+
+        // Add API explorer and Swagger for development
+        services.AddEndpointsApiExplorer();
+        services.AddSwaggerGen(c =>
+        {
+            c.SwaggerDoc("v1", new OpenApiInfo
+            {
+                Title = "Stratum API",
+                Version = "v1",
+                Description = "S3-Compatible Object Storage API"
+            });
+        });
+
+        // Register infrastructure services
+        services.AddSingleton<IMetadataStore>(sp => new SQLiteMetadataStore("Data Source=./data/stratum.db"));
+
+        // Register FileSystemObjectStore with performance optimizations
+        var maxConcurrentOps = configuration.GetValue<int>("Storage:MaxConcurrentOperations", 100);
+        var fileSystemStore = new FileSystemObjectStore("./data/objects", maxConcurrentOps);
+
+        // Wrap with CachedObjectStore for frequently accessed files
+        var maxCacheSize = configuration.GetValue<int>("Storage:MaxCacheSize", 1000);
+        var maxCacheBytes = configuration.GetValue<long>("Storage:MaxCacheBytes", 1024L * 1024 * 1024); // 1GB default
+        var cachedStore = new CachedObjectStore(fileSystemStore, maxCacheSize, maxCacheBytes);
+
+        services.AddSingleton<IObjectStore>(cachedStore);
+        services.AddSingleton<SigV4Validator>();
+        services.AddSingleton<ETagCalculator>();
+        services.AddSingleton<PerformanceMetrics>();
+
+        // Configure Kestrel
+        services.Configure<KestrelServerOptions>(options =>
+        {
+            var listenUrl = configuration["Server:ListenUrl"] ?? "http://0.0.0.0:9000";
+            var enableHttp3 = configuration.GetValue<bool>("Server:EnableHttp3", true);
+            var maxRequestBodySize = configuration.GetValue<long>("Server:MaxRequestBodySize", 5L * 1024 * 1024 * 1024);
+            var maxRequestBufferSize = configuration.GetValue<int>("Server:MaxRequestBufferSize", 1024 * 1024);
+
+            var uri = new Uri(listenUrl);
+            options.ListenAnyIP(uri.Port, listenOptions =>
+            {
+                listenOptions.Protocols = enableHttp3 ? HttpProtocols.Http1AndHttp2AndHttp3 : HttpProtocols.Http1AndHttp2;
+            });
+
+            options.Limits.MaxRequestBodySize = maxRequestBodySize;
+            options.Limits.MaxRequestBufferSize = maxRequestBufferSize;
+            options.Limits.MaxConcurrentConnections = 10000;
+            options.Limits.MaxConcurrentUpgradedConnections = 1000;
+            options.AddServerHeader = false;
+            options.AllowSynchronousIO = false;
+        });
+
+        return services;
+    }
+}
+
+/// <summary>
+/// Extension methods for configuring the Stratum API middleware pipeline.
+/// </summary>
+public static class ApplicationExtensions
+{
+    /// <summary>
+    /// Configures the Stratum API middleware pipeline.
+    /// </summary>
+    /// <param name="app">The web application.</param>
+    /// <param name="configuration">The configuration instance.</param>
+    /// <returns>The web application for chaining.</returns>
+    public static IApplicationBuilder UseStratumApi(this IApplicationBuilder app, IConfiguration configuration)
+    {
+        // Validate configuration at startup
+        try
+        {
+            var validator = new ConfigurationValidator(configuration);
+            var errors = validator.Validate();
+            if (errors.Count > 0)
+            {
+                Console.WriteLine($"Configuration validation warnings:{Environment.NewLine}{string.Join(Environment.NewLine, errors.Select(e => $"  - {e}"))}");
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Configuration validation error: {ex.Message}");
+        }
+
+        // Use developer error middleware for detailed error information
+        app.UseDeveloperError();
+
+        // Use request ID middleware for tracing
+        app.UseRequestId();
+
+        // Use request validation middleware
+        app.UseRequestValidation();
+
+        // Use request size validation middleware
+        app.UseRequestSizeValidation();
+
+        // Use rate limiting middleware
+        app.UseRateLimit();
+
+        // Use request timeout middleware
+        // app.UseRequestTimeout();
+
+        // Use response compression
+        app.UseResponseCompression();
+
+        // Use performance timing middleware
+        // app.UsePerformanceTiming();
+
+        // Use performance metrics collection
+        // app.UsePerformanceMetrics();
+
+        // Use request logging middleware
+        app.UseRequestLogging();
+
+        // Use HTTPS redirection in production
+        if (app is WebApplication webApp && webApp.Environment.IsProduction())
+        {
+            app.UseHttpsRedirection();
+        }
+
+        // Use CORS
+        app.UseCors();
+
+        // Use URL normalization for S3-style URLs
+        app.UseUrlNormalization();
+
+        // Use Swagger in development
+        if (app is WebApplication webApp2 && webApp2.Environment.IsDevelopment())
+        {
+            app.UseSwagger();
+            app.UseSwaggerUI();
+        }
+
+        return app;
+    }
+}
+
+/// <summary>
+/// Extension methods for configuring the Stratum API endpoint routing.
+/// </summary>
+public static class EndpointRouteBuilderExtensions
+{
+    /// <summary>
+    /// Maps the Stratum API endpoints to the application.
+    /// </summary>
+    /// <param name="app">The web application.</param>
+    /// <returns>The web application for chaining.</returns>
+    public static WebApplication MapStratumEndpoints(this WebApplication app)
+    {
+        // Use health checks endpoint with detailed response
+        app.MapHealthChecks("/health", new Microsoft.AspNetCore.Diagnostics.HealthChecks.HealthCheckOptions
+        {
+            ResponseWriter = async (context, report) =>
+            {
+                context.Response.ContentType = "application/json";
+                var response = new
+                {
+                    Status = report.Status.ToString(),
+                    Checks = report.Entries.Select(x => new
+                    {
+                        Name = x.Key,
+                        Status = x.Value.Status.ToString(),
+                        Description = x.Value.Description,
+                        Duration = x.Value.Duration.TotalMilliseconds
+                    }),
+                    TotalDuration = report.TotalDuration.TotalMilliseconds
+                };
+                await context.Response.WriteAsJsonAsync(response);
+            }
+        });
+
+        // Map S3 API endpoints
+        app.MapBucketEndpoints();
+        // app.MapMultipartEndpoints(); // Temporarily disabled due to routing conflicts
+        app.MapObjectEndpoints();
+
+        // Map metrics endpoint
+        app.MapGet("/metrics", (PerformanceMetrics metrics) =>
+        {
+            return Results.Ok(new
+            {
+                Uptime = metrics.GetUptime().ToString(@"hh\:mm\:ss"),
+                Metrics = metrics.GetAllMetrics()
+                    .OrderByDescending(m => m.Count)
+                    .ToList()
+            });
+        }).WithName("GetMetrics");
+
+        // Map API info endpoint
+        app.MapGet("/api", () => Results.Ok(new
+        {
+            Service = "Stratum S3-Compatible Object Storage",
+            Version = "0.1.0-alpha.1",
+            ApiVersion = "v1",
+            Status = "Running"
+        }));
+
+        return app;
+    }
+}

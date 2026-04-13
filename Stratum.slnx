@@ -1,0 +1,13 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Stratum.Api/Stratum.Api.csproj" />
+    <Project Path="src/Stratum.Application/Stratum.Application.csproj" />
+    <Project Path="src/Stratum.Console/Stratum.Console.csproj" />
+    <Project Path="src/Stratum.Domain/Stratum.Domain.csproj" />
+    <Project Path="src/Stratum.Infrastructure/Stratum.Infrastructure.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Stratum.IntegrationTests/Stratum.IntegrationTests.csproj" />
+    <Project Path="tests/Stratum.UnitTests/Stratum.UnitTests.csproj" />
+  </Folder>
+</Solution>
